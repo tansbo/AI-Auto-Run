@@ -366,11 +366,14 @@ internal static class EventOverlayDriver
     }
 
     /// <summary>
-    /// CrystalSphere（水晶球揭示小游戏）屏驱动（移植 AutoSlay CrystalSphereScreenHandler）：
-    /// 逐格点开隐藏格（%Cells 下的 NCrystalSphereCell，Entity.IsHidden）；揭示次数耗尽后游戏自动开奖励屏
-    /// （顶层换成奖励屏即交还主循环，由 DriveRewardsAsync 接走）；奖励处理完回到本屏点 %ProceedButton 离开进地图。
-    /// 修复：旧实现不认识该屏 → 15s 兜底自关超时 → 事件房永久卡死（NECROBINDER 4634LZP01FBE 实机复现）。
-    /// 点格冒烟级（无信息时点第一格）；后续批次可按奖品价值（金/诅咒/遗物/卡）挑格。
+    /// CrystalSphere（水晶球揭示小游戏）屏驱动（移植 AutoSlay CrystalSphereScreenHandler）。
+    /// 机制（decomp 核对 CrystalSphereMinigame/CrystalSphereCell/NCrystalSphereScreen）：
+    /// 11×11 迷雾棋盘，四角+十字预清空，15 件奖品（1 遗物/2 普通药水/1 稀有药水/3 卡奖励/1 诅咒/7 金币）
+    /// 随机铺在迷雾格；每次占卜 = 点 1 格，Big 工具清 3×3（Small 只清 1 格）；某奖品占用格全清即"揭示"
+    /// （结算时发放，含诅咒——没有任何逐格提示可避开）。揭示次数耗尽自动开奖励屏（顶层换屏即交还主循环由
+    /// DriveRewardsAsync 接走），处理完回到本屏点 %ProceedButton 离开进地图。
+    /// **选格策略（用户规则：在这些状态里取最大收益）**：无物品位置信息 → 每次选能新清掉最多迷雾格的格
+    /// （3×3 覆盖最大、不重叠浪费），确定性取最大者；Big 工具固定（比 Small 每占卜覆盖更多）。
     /// </summary>
     private static async Task DriveCrystalSphereAsync(NCrystalSphereScreen screen, CancellationToken token)
     {
@@ -398,16 +401,53 @@ internal static class EventOverlayDriver
                 await Task.Delay(100, token);
                 continue;
             }
-            List<NCrystalSphereCell> hidden = [];
+            List<NCrystalSphereCell> all = [];
             foreach (NCrystalSphereCell cell in RunUiHelper.FindAll<NCrystalSphereCell>(cells))
             {
-                if (cell.Visible && cell.Entity.IsHidden)
+                if (cell.Visible)
+                    all.Add(cell);
+            }
+            List<NCrystalSphereCell> hidden = [];
+            foreach (NCrystalSphereCell cell in all)
+            {
+                if (cell.Entity.IsHidden)
                     hidden.Add(cell);
             }
             if (hidden.Count == 0)
                 break; // 无可点格：等奖励屏或离开。
+
+            // 覆盖最大化：选 3×3 范围内还藏着最多迷雾格的格。
             NCrystalSphereCell pick = hidden[0];
-            RunAutoController.Session?.LogDecision($"水晶球：揭开 ({pick.Entity.X},{pick.Entity.Y}) 剩余 {hidden.Count - 1}");
+            int bestScore = -1;
+            foreach (NCrystalSphereCell candidate in hidden)
+            {
+                int score = 0;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        int nx = candidate.Entity.X + dx;
+                        int ny = candidate.Entity.Y + dy;
+                        if (nx < 0 || nx >= 11 || ny < 0 || ny >= 11)
+                            continue;
+                        foreach (NCrystalSphereCell other in all)
+                        {
+                            if (other.Entity.X == nx && other.Entity.Y == ny && other.Entity.IsHidden)
+                            {
+                                score++;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    pick = candidate;
+                }
+            }
+            RunAutoController.Session?.LogDecision(
+                $"水晶球：揭开 ({pick.Entity.X},{pick.Entity.Y}) 覆盖 {bestScore} 格，剩 {hidden.Count - 1} 迷雾格");
             pick.EmitSignal(NClickableControl.SignalName.Released, pick);
             await Task.Delay(500, token);
             clicks++;
