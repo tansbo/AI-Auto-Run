@@ -155,6 +155,7 @@ RitsuLib 跑局事件（RunStarted/RoomEntered/CombatVictory/...）
 | `src/Run/CardRewardDriver.cs` + `NCardRewardScreenPatch.cs` | 战后卡牌奖励自动选牌/跳过 | 评分 |
 | `src/Run/RewardsScreenDriver.cs` | 战后 `NRewardsScreen` 逐个领取奖励，子覆盖层等其自处理 | 评分 |
 | `src/Run/MapRouter.cs` | 地图按 `MapPointType` 评分选路并点击前进，等 `RoomEntered` | 房间内部驱动 |
+| `src/Run/NMapScreenPatch.cs` | Postfix 钩 `NMapScreen.Open` 统一触发地图选路（手动顶栏开图不触发）；`RunAutoController` 不再在 `MapGeneratedEvent` 触发选路 | 选路评分与点击 |
 | `src/Run/RestSiteDriver.cs` | 篝火低血量回血、否则升级，处理升级选牌覆盖层 | 评分 |
 | `src/Run/ShopDriver.cs` | 商店打开商品栏评分购买，购买排空移除覆盖层，关栏离开 | 评分 |
 | `src/Run/EventDriver.cs` | 事件逐个选非致死选项，纯遗物选项走先古遗物评分选最优正向，事件内战斗交给求解器，Ancient 翻页 | 战斗 |

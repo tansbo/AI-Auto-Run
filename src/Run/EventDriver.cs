@@ -168,8 +168,9 @@ internal static class EventDriver
 
                 if (mapOpened)
                 {
-                    // 事件完成（PROCEED）只打开地图，不触发 RoomExited 房间退出事件，
-                    // MapRouter 不会被 RunAutoController 触发，主动请求选路进下一房间。
+                    // 事件完成（PROCEED）只打开地图，不触发 RoomExited 房间退出事件。
+                    // 选路主路径是 NMapScreenPatch 在 Open 时触发，这里保留调用作兜底
+                    // （若补丁未生效仍能前进），_routingActive 去重不会双路由。
                     session.LogDecision("事件完成，地图已打开，请求选路");
                     MapRouter.RequestRoute();
                     return;

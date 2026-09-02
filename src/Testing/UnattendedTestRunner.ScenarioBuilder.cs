@@ -263,8 +263,10 @@ internal sealed partial class UnattendedTestRunner
             {
                 RunAutoEnabled = true,
                 RunAutoStopOnGameOver = true,
-                // FastMode 疑似在 headless 下让游戏原生自动出牌阶段卡死，先关掉定位。
-                RunAutoFastMode = false,
+                // 批 0 headless 冒烟即以 FastMode=true（默认值）跑通 14 房间至阵亡；
+                // "FastMode 在 headless 卡死"是未证实怀疑，关掉它后整局按原速播放导致 150s 冒烟超时，
+                // 恢复 true 对齐批 0 行为（FastMode 真正卡死再单独定位）。
+                RunAutoFastMode = true,
                 RunAutoDebugLog = true,
                 RunAutoForcedPicks = runner._request.RunAutoForcedPicks ?? string.Empty,
                 RunAutoTelemetryEnabled = runner._request.RunAutoTelemetryEnabled,

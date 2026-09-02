@@ -48,6 +48,7 @@ public static class Entry
         patcher.RegisterPatch<HandUpgradeObservationPatch>();
         patcher.RegisterPatch<NCardRewardScreenPatch>();
         patcher.RegisterPatch<NChooseARelicScreenPatch>();
+        patcher.RegisterPatch<NMapScreenPatch>();
         patcher.RegisterPatch<CombatStateTrackerIsolationPatch>();
         patcher.RegisterPatch<RitsuFreePlayVoidIsolationPatch>();
         patcher.RegisterPatch<RitsuFreePlayBoolIsolationPatch>();

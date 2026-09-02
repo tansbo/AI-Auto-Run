@@ -183,8 +183,9 @@ internal static class RunAutoController
         if (session == null)
             return;
         session.RunState = evt.RunState as RunState ?? session.RunState;
-        session.LogDecision($"地图生成（第 {evt.ActIndex + 1} 幕），选路");
-        MapRouter.RequestRoute();
+        // 选路不在这里触发：地图生成早于地图屏幕打开（如开局先 Neow 事件），
+        // 此时请求选路会白等 30s 超时。统一由 NMapScreenPatch 在 NMapScreen.Open 时触发。
+        session.LogDecision($"地图生成（第 {evt.ActIndex + 1} 幕）");
     }
 
     private static void OnRoomExited(RoomExitedEvent evt)
