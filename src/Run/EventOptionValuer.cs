@@ -81,6 +81,13 @@ internal static class EventOptionValuer
                 Deterministic: true);
         }
 
+        // 目录档案：收益-代价综合评估（上面可见遗物/卡的实际值已先行返回；这里覆盖其余确定性
+        // 与随机选项——掉血/失最大生命/塞诅咒/花钱为负，遗物/卡/金币/治疗/升级为正，随机按稀有度期望）。
+        if (EventOptionProfiles.ByTextKey.TryGetValue(option.TextKey, out EventOptionProfiles.Profile? profile))
+        {
+            return ProfileScore(profile, player, runState);
+        }
+
         // 随机奖励：作者填写的综合期望。
         if (RandomAverageByTextKey.TryGetValue(option.TextKey, out float expected))
         {
@@ -93,6 +100,119 @@ internal static class EventOptionValuer
         // 未建模：价值 0、非确定 —— 调用方不做冒险重排（保持既有顺序）。
         return new OptionScore(0f, $"未建模({option.TextKey})", Deterministic: false);
     }
+
+    /// <summary>
+    /// 目录档案换算（分数口径与 CardPickerAI 同一量级；常量见下，随跑局数据校准）：
+    /// 掉血 ×血量风险权重、失最大生命 5/点、诅咒 14/张、花钱 0.15/金、事件战斗 -8；
+    /// 遗物/卡确定性→按类名解析实际价值（ModelDb），随机→稀有度期望；金币 +0.15/金、
+    /// 治疗 +0.6/点（按缺血量封顶）、+最大生命 6/点、升级 7/张。removeCard 移除为自选（覆盖层
+    /// 另做选择）记中性 0；transform/other/leave 0（上下文敏感，后续逐事件精化）。
+    /// </summary>
+    private static OptionScore ProfileScore(
+        EventOptionProfiles.Profile profile,
+        Player? player,
+        RunState? runState)
+    {
+        float hpFraction = player?.Creature != null && player.Creature.MaxHp > 0
+            ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
+            : 0.7f;
+        float hpWeight = Math.Clamp(1f + (0.5f - hpFraction) * 1.6f, 0.35f, 2.2f);
+        float regen = (float)RunActContext.PassivePostCombatHeal(player);
+        if (regen > 0f)
+            hpWeight *= 0.85f;
+        int maxHp = player?.Creature.MaxHp ?? 80;
+        float missing = Math.Max(0f, maxHp - (player?.Creature.CurrentHp ?? maxHp));
+        DeckContext? deckContext = null;
+
+        float value = 0f;
+        float Item(float sign, string kind, double? amt, string? detail)
+        {
+            switch (kind)
+            {
+                case "loseHp":
+                    return -1f * (float)(amt ?? 3) * hpWeight;
+                case "losePercentHp":
+                    return -1f * maxHp * (float)(amt ?? 10) / 100f * hpWeight;
+                case "loseMaxHp":
+                    return -1f * (float)(amt ?? 5) * 5f;
+                case "curse":
+                    return -14f * Math.Max(1f, (float)(amt ?? 1));
+                case "fight":
+                    return -8f;
+                case "gold":
+                    return sign * 0.15f * (float)(amt ?? 0);
+                case "obtainRelic":
+                {
+                    if (detail != null)
+                    {
+                        foreach (RelicModel relic in ModelDb.AllRelics)
+                        {
+                            if (relic.GetType().Name.Equals(detail, StringComparison.Ordinal))
+                                return RelicPickerAI.Score(relic);
+                        }
+                    }
+                    return 12f; // Event 稀有度遗物默认值（无解析时）。
+                }
+                case "obtainCard":
+                {
+                    if (detail != null)
+                    {
+                        deckContext ??= DeckContext.From(player, runState);
+                        foreach (CardModel card in ModelDb.AllCards)
+                        {
+                            if (card.GetType().Name.Equals(detail, StringComparison.Ordinal))
+                                return CardPickerAI.Evaluate(card, deckContext);
+                        }
+                    }
+                    return 7f;
+                }
+                case "randomRelic":
+                    return RarityRelicConst(profile.RandomRarity);
+                case "randomCard":
+                    return RarityCardConst(profile.RandomRarity);
+                case "randomPotion":
+                    return RarityPotionConst(profile.RandomRarity);
+                case "heal":
+                    return 0.6f * Math.Min(missing, (float)(amt ?? 0));
+                case "maxHpGain":
+                    return 6f * (float)(amt ?? 1);
+                case "upgradeCard":
+                    return 7f * Math.Max(1f, (float)(amt ?? 1));
+                case "removeCard":
+                    return 0f; // 移除自选，覆盖层决策另算（冒烟先取第一张）。
+                case "leave":
+                case "transformCard":
+                case "other":
+                    return 0f;
+                default:
+                    return sign * 0f;
+            }
+        }
+
+        foreach (EventOptionProfiles.P item in profile.Costs)
+            value += Item(-1f, item.Kind, item.Amount, item.Detail);
+        foreach (EventOptionProfiles.P item in profile.Outcomes)
+            value += Item(+1f, item.Kind, item.Amount, item.Detail);
+        return new OptionScore(value, $"{profile.EventClass}:{value:0.#}分", profile.Deterministic);
+    }
+
+    private static float RarityRelicConst(string? rarity)
+        => rarity?.ToUpperInvariant() switch
+        {
+            "COMMON" => 8f, "UNCOMMON" => 13f, "RARE" => 18f, "EVENT" => 12f, _ => 11f,
+        };
+
+    private static float RarityCardConst(string? rarity)
+        => rarity?.ToUpperInvariant() switch
+        {
+            "COMMON" => 5f, "UNCOMMON" => 10f, "RARE" => 16f, _ => 8f,
+        };
+
+    private static float RarityPotionConst(string? rarity)
+        => rarity?.ToUpperInvariant() switch
+        {
+            "COMMON" => 4f, "RARE" => 9f, "TOKEN" => 2f, _ => 6f,
+        };
 
     /// <summary>统计选项悬停里出现的诅咒卡数量（诅咒作为展示代价的信号）。</summary>
     private static int CountCurseTips(EventOption option)
