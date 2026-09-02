@@ -131,16 +131,13 @@ internal static class EventDriver
                 }
 
                 RunState? runState = RunManager.Instance.DebugOnlyGetState();
-                NEventOptionButton? choice = ChooseOption(options, runState);
+                NEventOptionButton? choice = ChooseOption(options, runState, out string basis);
                 if (choice == null)
                     return;
 
                 var before = new HashSet<NEventOptionButton>(options);
-                string scoreText = choice.Option.Relic != null
-                    ? $"（评分 {RelicPickerAI.ScoreAncientChoice(choice.Option.Relic, runState):0.#}）"
-                    : "";
                 session.LogDecision(
-                    $"事件：{choice.Event?.Id.Entry ?? "unknown"} → {choice.Option.Title.GetFormattedText()}{scoreText}");
+                    $"事件：{choice.Event?.Id.Entry ?? "unknown"} → {choice.Option.Title.GetFormattedText()}（{basis}）");
                 // 先古遗物等关键选择：停顿一下让底部覆盖层显示推荐，用户能看清再点。
                 if (choice.Option.Relic != null)
                     await Task.Delay(1500, token);
@@ -253,10 +250,17 @@ internal static class EventDriver
     }
 
     /// <summary>
-    /// 选一个选项：优先非"离开"且不会杀死玩家的选项；只剩离开或全部会致死时选第一个不会致死的。
+    /// 选一个选项：先排除会杀死玩家的选项；先古遗物（全遗物三选）用遗物评分；
+    /// 其余事件按 <see cref="EventOptionValuer"/> 的价值排序：
+    ///   可 SL（选项看得见具体卡/遗物）→ 实际价值优先；随机奖励选项 → 目录综合期望；
+    ///   都未建模时维持既有行为（第一个非"离开"的可行动项）。
     /// </summary>
-    private static NEventOptionButton? ChooseOption(List<NEventOptionButton> options, RunState? runState)
+    private static NEventOptionButton? ChooseOption(
+        List<NEventOptionButton> options,
+        RunState? runState,
+        out string basis)
     {
+        basis = "";
         Player? player = runState == null ? null : LocalContext.GetMe(runState);
 
         var nonKill = new List<NEventOptionButton>();
@@ -284,8 +288,50 @@ internal static class EventDriver
             foreach (NEventOptionButton button in relicOptions)
             {
                 if (ReferenceEquals(button.Option.Relic, best))
+                {
+                    basis = $"遗物评分:{RelicPickerAI.ScoreAncientChoice(best, runState):0.#}";
                     return button;
+                }
             }
+        }
+
+        // 其余事件：按价值排序。确定奖励（可 SL）优先，其次目录里建模过的随机期望；
+        // 都不满足才退回"第一个可行动项"（原行为，不冒险重排未建模选项）。
+        float bestActual = float.MinValue;
+        NEventOptionButton? actualChoice = null;
+        string actualBasis = "";
+        float bestModeled = float.MinValue;
+        NEventOptionButton? modeledChoice = null;
+        string modeledBasis = "";
+        foreach (NEventOptionButton button in options)
+        {
+            if (button.Option.IsProceed)
+                continue;
+            EventOptionValuer.OptionScore score = EventOptionValuer.Score(button.Option, player, runState);
+            if (score.Deterministic && score.Value > 0f && score.Value > bestActual)
+            {
+                bestActual = score.Value;
+                actualChoice = button;
+                actualBasis = score.Basis;
+            }
+            else if (!score.Deterministic
+                     && score.Value > 0f
+                     && score.Value > bestModeled)
+            {
+                bestModeled = score.Value;
+                modeledChoice = button;
+                modeledBasis = score.Basis;
+            }
+        }
+        if (actualChoice != null)
+        {
+            basis = actualBasis;
+            return actualChoice;
+        }
+        if (modeledChoice != null)
+        {
+            basis = modeledBasis;
+            return modeledChoice;
         }
 
         var actionable = new List<NEventOptionButton>();
@@ -294,7 +340,13 @@ internal static class EventDriver
             if (!button.Option.IsProceed)
                 actionable.Add(button);
         }
-        return actionable.Count > 0 ? actionable[0] : options[0];
+        if (actionable.Count > 0)
+        {
+            basis = "未建模（保持原顺序）";
+            return actionable[0];
+        }
+        basis = "仅离开选项";
+        return options.Count > 0 ? options[0] : null;
     }
 
     /// <summary>
