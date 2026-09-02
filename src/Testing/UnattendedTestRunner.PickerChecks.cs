@@ -116,6 +116,13 @@ internal sealed partial class UnattendedTestRunner
             return;
         }
         CardModel? chosen = CardPickerAI.PickBest(options, player, runState);
+        DeckContext deckContext = DeckContext.From(player, runState);
+        string scores = string.Join(
+            " | ",
+            options.Select(card => $"{card.Id.Entry}={CardPickerAI.Evaluate(card, deckContext):0.###}"));
+        Entry.Logger.Info(
+            $"[CombatSolver/Unattended] PICKER_SCORES 角色={_request.CharacterId} " +
+            $"chosen={chosen?.Id.Entry ?? "跳过"} 评分=[{scores}]");
         AssertPickResult(chosen?.Id.Entry, check.ExpectedPickId, "卡牌", string.Join("/", check.OptionIds));
     }
 
