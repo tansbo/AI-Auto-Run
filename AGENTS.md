@@ -204,6 +204,7 @@ Windows `.ps1` 与 Linux `.sh` 都是受维护的平台原生入口：PowerShell
 - Overlay 的人工布局、字体、拖动和真实动画需要可见游戏验证；headless 只证明结构化状态与部署事件。
 - No-GC 和卡顿受完整 Mod 栈及渲染分配影响；headless 数据不能替代可见 Steam 性能口径。
 - `.local/decompiled/sts2-v0.111.0/` 是当前游戏版本的只读原版源码参考。只有调查原版语义时定向读取，游戏版本变化后重新建立对应版本目录；不要在普通仓库扫描中载入它。
+- 游戏进程操作：用户已授权（2026-09-02）在需要时直接结束 `SlayTheSpire2` 进程——包括 DLL 部署被运行中的游戏锁定、实机测试需要重启、或可见会话卡死时。可见实机测试也可由 agent 驱动：把 `RunAutoFullRun` 请求 JSON 写入可见会话的 `user://combat_solver_test_request.json`（可见模式下 `%APPDATA%\SlayTheSpire2\`），正常启动游戏即可让全自动跑局在可见窗口中自行跑完整局并写结果/退出；第三方 mod 隔离与恢复仍按 `mod-isolation.ps1` 执行。
 
 ## 11. 完成汇报
 
