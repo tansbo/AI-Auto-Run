@@ -123,6 +123,7 @@ internal static class EventOptionValuer
         int maxHp = player?.Creature.MaxHp ?? 80;
         float missing = Math.Max(0f, maxHp - (player?.Creature.CurrentHp ?? maxHp));
         DeckContext? deckContext = null;
+        float goldScale = RunActContext.GoldValueScale(runState); // 金币价值随商店可达性浮动。
 
         float value = 0f;
         float Item(float sign, string kind, double? amt, string? detail)
@@ -140,7 +141,7 @@ internal static class EventOptionValuer
                 case "fight":
                     return -8f;
                 case "gold":
-                    return sign * 0.15f * (float)(amt ?? 0);
+                    return sign * 0.15f * (float)(amt ?? 0) * goldScale;
                 case "obtainRelic":
                 {
                     if (detail != null)
@@ -239,8 +240,10 @@ internal static class EventOptionValuer
     {
         if (!option.TextKey.Contains(".CLAIM", StringComparison.OrdinalIgnoreCase))
         {
-            // SEARCH：随机金币 45–75，期望 60，换算约 9 分。
-            return new OptionScore(9f, "LOST_WISP:SEARCH(期望60金)", Deterministic: false);
+            // SEARCH：随机金币 45–75，期望 60，换算 ≈ 60×0.15×金币价值系数（商店可达性）。
+            float goldScale = RunActContext.GoldValueScale(runState);
+            float searchValue = 60f * 0.15f * goldScale;
+            return new OptionScore(searchValue, $"LOST_WISP:SEARCH(期望60金×{goldScale:0.##})", Deterministic: false);
         }
 
         int powers = 0;

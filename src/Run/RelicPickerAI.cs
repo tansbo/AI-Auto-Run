@@ -1,3 +1,6 @@
+using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
@@ -109,11 +112,13 @@ internal static class RelicPickerAI
     /// <summary>是否为 Neow 诅咒遗物（以运行时类名为准，比 Id.Entry 更稳）。</summary>
     public static bool IsAncientCurse(RelicModel relic) => KnownCurseRelicTypeNames.Contains(relic.GetType().Name);
 
-    /// <summary>先古遗物评分：诅咒为不可选（-1000），正向按精选表加成，基础分按 Ancient，再加路线调整。</summary>
+    /// <summary>先古遗物评分：诅咒类不再是"永不选"，而是按实际效果建模**净价值**（用户规则：
+    /// 很多先古遗物带代价但有强正面效果——如 Neow 第三排 CursedPearl +333 金带 1 诅咒、HeftyTablet
+    /// 稀有 3 选 1 带瘀伤、NeowsBones 2 遗物、SilverCrucible 3 次强化等）。未知诅咒仍不选（-1000）。</summary>
     public static float ScoreAncientChoice(RelicModel relic, RunState? runState)
     {
         if (IsAncientCurse(relic))
-            return -1000f;
+            return AncientCurseNet(relic, runState);
         float score = 13f;
         if (KnownAncientChoiceBonuses.TryGetValue(relic.GetType().Name, out float known))
             score += known;
@@ -122,15 +127,13 @@ internal static class RelicPickerAI
         return score;
     }
 
-    /// <summary>选最优先古遗物：绝不主动选诅咒；若所有选项都是诅咒（理论上不会发生）则退回第一个。</summary>
+    /// <summary>选最优先古遗物（含代价类）：全部按净价值比较取最大，不再排除诅咒列表。</summary>
     public static RelicModel PickBestAncientChoice(IReadOnlyList<RelicModel> options, RunState? runState)
     {
         RelicModel? best = null;
         float bestScore = float.MinValue;
         foreach (RelicModel relic in options)
         {
-            if (IsAncientCurse(relic))
-                continue;
             float score = ScoreAncientChoice(relic, runState);
             if (score > bestScore)
             {
@@ -139,6 +142,62 @@ internal static class RelicPickerAI
             }
         }
         return best ?? options[0];
+    }
+
+    /// <summary>
+    /// 代价类先古遗物的净价值（分数口径与 CardPickerAI/ScoreAncientChoice 一致；常量随跑局数据校准）。
+    /// 数值来自反编译实际效果（2026-09-02）：
+    ///   CursedPearl +333金+1 Greed诅咒；DowsingRod 入组 Dowsing 卡；HeftyTablet 稀有卡3选1(可跳)+1 Injury；
+    ///   LargeCapsule 2随机遗物+打击/防御各1；LeafyPoultice −12最大生命+转化2张基础牌；
+    ///   NeowsBones 2遗物(不可跳)+1诅咒；NeowsSacrifice 龙涎香药水+Guilty诅咒；
+    ///   PrecariousShears 移除2张(自选)+16不可挡伤；SilkenTress 清空当前金币、后续卡奖励附 Glam 附魔；
+    ///   SilverCrucible 3 次卡奖励升级类强化。
+    /// 金币 0.15/金、诅咒 14/张、最大生命 −2.5/点、随机遗物 ~11、稀有卡 ~16、移除 ~2/张（可除垃圾加分）、
+    /// 转化基础牌按基础牌数量定值、掉血 ×血量风险权重（战士战后回血折扣）。
+    /// </summary>
+    private static float AncientCurseNet(RelicModel relic, RunState? runState)
+    {
+        Player? player = runState == null ? null : LocalContext.GetMe(runState);
+        float hpFraction = player?.Creature != null && player.Creature.MaxHp > 0
+            ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
+            : 0.7f;
+        float hpWeight = Math.Clamp(1f + (0.5f - hpFraction) * 1.6f, 0.35f, 2.2f);
+        float regen = (float)RunActContext.PassivePostCombatHeal(player);
+        if (regen > 0f)
+            hpWeight *= 0.85f;
+
+        int basics = 0, removable = 0, curses = 0;
+        if (player?.Deck != null)
+        {
+            foreach (CardModel card in player.Deck.Cards)
+            {
+                if (card.Rarity == CardRarity.Basic)
+                    basics++;
+                if (card.Rarity == CardRarity.Curse)
+                    curses++;
+                if (card.IsRemovable)
+                    removable++;
+            }
+        }
+        int gold = player?.Gold ?? 0;
+        float goldScale = RunActContext.GoldValueScale(runState); // 金币价值随本幕商店可达性浮动。
+        float transformBasics = basics > 0 ? Math.Min(2, basics) * 7f : 0f;
+        float removalValue = 2f * Math.Min(2, removable) + (curses > 0 ? 8f : 0f);
+
+        return relic.GetType().Name switch
+        {
+            nameof(CursedPearl) => 333f * 0.15f * goldScale - 14f,     // 333 金 − Greed 诅咒
+            nameof(DowsingRod) => 6f,                              // Dowsing 卡入组（效果待考）
+            nameof(HeftyTablet) => 16f - 14f,                      // 稀有 3 选 1（可跳）− Injury
+            nameof(LargeCapsule) => 2f * 11f - 8f,                 // 2 随机遗物 − 打击/防御稀释
+            nameof(LeafyPoultice) => -12f * 2.5f + transformBasics, // −12 最大生命 + 转化 2 基础
+            nameof(NeowsBones) => 6f,                              // 2 遗物（不可跳）− 1 诅咒
+            nameof(NeowsSacrifice) => 5f - 14f,                    // 龙涎香 − Guilty
+            nameof(PrecariousShears) => removalValue - 16f * hpWeight, // 移除 2 − 16 不可挡
+            nameof(SilkenTress) => 12f - gold * 0.15f * goldScale, // 附魔奖励 − 清空金币
+            nameof(SilverCrucible) => 21f,                         // 3 次奖励强化
+            _ => -1000f,                                           // 未知诅咒仍不选
+        };
     }
 
     /// <summary>
