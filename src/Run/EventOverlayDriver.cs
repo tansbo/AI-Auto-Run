@@ -215,11 +215,12 @@ internal static class EventOverlayDriver
     }
 
     /// <summary>
-    /// NDeckTransformSelectScreen（牌组转化选牌，如 MORPHIC_GROVE 大群变形灵选 2 张转化）与
-    /// NDeckUpgradeSelectScreen（牌组升级选牌，如 AromaOfChaos/SapphireSeed/SpiritGrafter/Trial 事件）通用驱动：
-    /// 逐张点选网格卡牌，选满 MaxSelect 时游戏自动弹对应预览容器（%PreviewContainer /
-    /// %UpgradeSinglePreviewContainer / %UpgradeMultiPreviewContainer），点预览内 Confirm 完成；
-    /// 主 Confirm（Min!=Max 时启用）也作兜底。
+    /// NDeckTransformSelectScreen（牌组转化选牌：MORPHIC_GROVE 选 2 张、TANX 武器遗物把打击转成武器
+    /// 选最多 6 张且 RequireManualConfirmation）与 NDeckUpgradeSelectScreen（牌组升级选牌）通用驱动：
+    /// 逐张点选网格卡牌；选满 MaxSelect 时游戏自动弹预览（%PreviewContainer /
+    /// %UpgradeSinglePreviewContainer / %UpgradeMultiPreviewContainer），点预览内 Confirm 完成。
+    /// RequireManualConfirmation 屏（如 TANX 武器，MinSelect=0）主确认只打开预览不直接完成——
+    /// 必须继续循环点预览确认；主确认只在没有更多可选卡时使用（避免 MinSelect=0 时空选直接收尾）。
     /// </summary>
     private static async Task DriveGridPreviewSelectAsync(
         CanvasItem screen,
@@ -233,36 +234,51 @@ internal static class EventOverlayDriver
             TimeSpan.FromSeconds(10),
             "选牌网格未出现");
         await Task.Delay(400, token);
-        List<NGridCardHolder> clicked = [];
-        for (int attempt = 0; attempt < 12 && IsStillTop(screen); attempt++)
+
+        bool IsPreviewOpen()
         {
-            bool confirmed = false;
-            foreach (string containerName in previewContainerNames)
+            foreach (string name in previewContainerNames)
             {
-                Control? preview = screen.GetNodeOrNull<Control>(containerName);
-                if (preview is { Visible: true })
+                if (screen.GetNodeOrNull<Control>(name) is { Visible: true })
+                    return true;
+            }
+            return false;
+        }
+
+        List<NGridCardHolder> clicked = [];
+        for (int attempt = 0; attempt < 16 && IsStillTop(screen); attempt++)
+        {
+            // 预览已开（选满 Max 自动弹，或主确认 ManualConfirm 打开）→ 点预览内 Confirm 完成。
+            if (IsPreviewOpen())
+            {
+                foreach (string name in previewContainerNames)
                 {
-                    NConfirmButton? previewConfirm = preview.GetNodeOrNull<NConfirmButton>("Confirm");
+                    NConfirmButton? previewConfirm = screen
+                        .GetNodeOrNull<Control>(name)?
+                        .GetNodeOrNull<NConfirmButton>("Confirm");
                     if (previewConfirm != null && previewConfirm.IsEnabled)
                     {
                         await RunUiHelper.ClickAsync(previewConfirm, 200);
-                        confirmed = true;
                         break;
                     }
                 }
-            }
-            if (confirmed || !IsStillTop(screen))
-                break;
-            NConfirmButton? mainConfirm = screen.GetNodeOrNull<NConfirmButton>("Confirm");
-            if (mainConfirm != null && mainConfirm.IsEnabled)
-            {
-                await RunUiHelper.ClickAsync(mainConfirm, 200);
                 break;
             }
+
             NGridCardHolder? next = RunUiHelper.FindAll<NGridCardHolder>(screen)
                 .FirstOrDefault(holder => !clicked.Contains(holder));
             if (next == null)
+            {
+                // 没有更多可选卡：点主确认收尾。ManualConfirm 屏会打开预览，
+                // 下一轮循环点预览确认；非 ManualConfirm 屏直接完成并关闭。
+                NConfirmButton? mainConfirm = screen.GetNodeOrNull<NConfirmButton>("Confirm");
+                if (mainConfirm != null && mainConfirm.IsEnabled)
+                {
+                    await RunUiHelper.ClickAsync(mainConfirm, 200);
+                    continue;
+                }
                 break;
+            }
             clicked.Add(next);
             next.EmitSignal(NCardHolder.SignalName.Pressed, next);
             await Task.Delay(300, token);
