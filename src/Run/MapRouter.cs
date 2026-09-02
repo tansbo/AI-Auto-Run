@@ -126,7 +126,11 @@ internal static class MapRouter
         _roomEnteredTcs?.TrySetResult();
     }
 
-    /// <summary>解析下一个要去的节点：首幕选第 0 行，之后选当前节点的子节点中评分最高的。</summary>
+    /// <summary>
+    /// 解析下一个要去的节点：开局选第 0 行，之后选当前节点的子节点。
+    /// 分支评分由 <see cref="RoutePlanner"/> 做危险度感知的全路线评估（看当前血量与药水保险），
+    /// 找不到图数据时退回旧的"单点类型"贪心。
+    /// </summary>
     private static NMapPoint? SelectNext()
     {
         NMapScreen? map = NMapScreen.Instance;
@@ -139,10 +143,59 @@ internal static class MapRouter
         RunState? runState = RunManager.Instance.DebugOnlyGetState();
         if (runState == null)
             return null;
-        bool lowHp = IsLowHp(runState);
 
+        MapPoint? currentPoint = null;
+        if (runState.VisitedMapCoords.Count > 0)
+        {
+            MapCoord lastCoord = runState.VisitedMapCoords[runState.VisitedMapCoords.Count - 1];
+            foreach (NMapPoint point in points)
+            {
+                if (point.Point.coord.Equals(lastCoord))
+                {
+                    currentPoint = point.Point;
+                    break;
+                }
+            }
+            if (currentPoint == null)
+                return null;
+        }
+
+        MapPoint? best = RoutePlanner.PickBest(runState, currentPoint, out float bestScore);
+        if (best != null)
+        {
+            foreach (NMapPoint point in points)
+            {
+                if (point.Point.coord.Equals(best.coord) && point.IsEnabled)
+                {
+                    LogRouteChoice(runState, point, bestScore);
+                    return point;
+                }
+            }
+        }
+
+        // 兜底：退回旧"单点类型"贪心（仅当规划器拿不到图/节点时）。
+        return LegacyGreedyFallback(points, currentPoint, runState);
+    }
+
+    private static void LogRouteChoice(RunState runState, NMapPoint target, float score)
+    {
+        RunAutoSession? session = RunAutoController.Session;
+        if (session == null)
+            return;
+        Player? player = LocalContext.GetMe(runState);
+        float hpFraction = player?.Creature != null && player.Creature.MaxHp > 0
+            ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
+            : 1f;
+        int potions = player?.Potions.Count() ?? 0;
+        session.LogDecision(
+            $"地图选路 ({target.Point.coord.row},{target.Point.coord.col}) {target.Point.PointType} " +
+            $"分支评分={score:F1} 血={hpFraction:P0} 药水={potions}");
+    }
+
+    private static NMapPoint? LegacyGreedyFallback(List<NMapPoint> points, MapPoint? currentPoint, RunState runState)
+    {
         List<MapCoord> candidates = [];
-        if (runState.VisitedMapCoords.Count == 0)
+        if (currentPoint == null)
         {
             foreach (NMapPoint point in points)
             {
@@ -152,24 +205,15 @@ internal static class MapRouter
         }
         else
         {
-            MapCoord lastCoord = runState.VisitedMapCoords[runState.VisitedMapCoords.Count - 1];
-            NMapPoint? current = null;
-            foreach (NMapPoint point in points)
-            {
-                if (point.Point.coord.Equals(lastCoord))
-                {
-                    current = point;
-                    break;
-                }
-            }
-            if (current == null)
-                return null;
-            foreach (MapPoint child in current.Point.Children)
+            foreach (MapPoint child in currentPoint.Children)
                 candidates.Add(child.coord);
         }
-
         if (candidates.Count == 0)
             return null;
+
+        Player? player = LocalContext.GetMe(runState);
+        bool lowHp = player != null && player.Creature.MaxHp > 0
+            && (float)player.Creature.CurrentHp / player.Creature.MaxHp < 0.5f;
 
         NMapPoint? best = null;
         float bestScore = float.MinValue;
@@ -195,13 +239,6 @@ internal static class MapRouter
                 return true;
         }
         return false;
-    }
-
-    private static bool IsLowHp(RunState runState)
-    {
-        Player? player = LocalContext.GetMe(runState);
-        return player != null && player.Creature.MaxHp > 0
-            && (float)player.Creature.CurrentHp / player.Creature.MaxHp < 0.5f;
     }
 
     private static float ScorePointType(MapPointType type, bool lowHp)
