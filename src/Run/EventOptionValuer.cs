@@ -1,3 +1,4 @@
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.HoverTips;
@@ -17,15 +18,19 @@ namespace CombatSolver.Run;
 ///     **综合期望评分**：从 <see cref="RandomAverageByTextKey"/> 目录按 TextKey 取作者填写的平均值；
 ///   - 目录未覆盖的随机选项返回"未建模"（价值 0、非确定性）——不做冒险重排，等逐事件阅读
 ///     decomp 填表（跑局日志会记录 TextKey 供收集）。
-/// **陷阱修复（2026-09-02，实机反馈）**：选项上展示的卡不一定是奖励——SLIPPERY_BRIDGE 的
-/// OVERCOME 展示的是**即将被移除的那张卡**（代价）。按事件建模先行：
-///   每轮 OVERCOME = 移除当前展示卡：价值 = -CardPickerAI.Evaluate(该卡)（垃圾卡正值=该移除，
-///   好卡强负值=别丢）；HOLD_ON = 掉 CurrentHpLoss（3+已撑轮次，不可挡）+ 换一张新威胁卡：
-///   价值 = -掉血量 × 血量风险权重（血越低越贵；战士战后回血 → 掉血更便宜）。
-/// 引擎由此自动做"展示卡值钱就掉血换重抽、展示卡是垃圾就移除"的最优权衡。
+/// 通用修正：
+///   - 悬停里出现的**诅咒卡**是"塞诅咒"代价而非奖励 → 每个诅咒扣 <see cref="CursePenalty"/>。
+///   - SLIPPERY_BRIDGE 展示卡是移除代价（见 <see cref="ScoreSlipperyBridge"/>）。
+/// 逐事件建模：
+///   - LostWisp：CLAIM = LostWisp 遗物（打能力牌时对全体 8 伤）+ Decay 诅咒 —— 遗物价值取决于牌组
+///     能力牌数量（没有能力牌=零收益），再扣诅咒代价；SEARCH = 45–75 金期望。用户反馈：没能力牌时
+///     塞诅咒拿它不值。
 /// </summary>
 internal static class EventOptionValuer
 {
+    /// <summary>一张诅咒卡的牌组代价（约分，待校准）。</summary>
+    private const float CursePenalty = 14f;
+
     public readonly record struct OptionScore(float Value, string Basis, bool Deterministic);
 
     /// <summary>
@@ -37,17 +42,22 @@ internal static class EventOptionValuer
 
     public static OptionScore Score(EventOption option, EventModel? eventModel, Player? player, RunState? runState)
     {
-        // 逐事件建模优先：展示的卡/代价语义可能反直觉（如 SLIPPERY_BRIDGE 的移除代价）。
+        // 逐事件建模优先：展示的卡/代价语义可能反直觉。
         if (eventModel is SlipperyBridge bridge)
             return ScoreSlipperyBridge(bridge, option, player, runState);
+        if (eventModel is LostWisp lostWisp)
+            return ScoreLostWisp(lostWisp, option, player, runState);
+
+        // 悬停里出现诅咒卡 = 塞诅咒代价。
+        float curseCost = CountCurseTips(option) * CursePenalty;
 
         // 确定奖励：选项挂着具体遗物（会显示图标/悬停）→ 实际价值。
         if (option.Relic != null)
         {
-            return new OptionScore(
-                RelicPickerAI.Score(option.Relic),
-                $"遗物实际:{option.Relic.Id.Entry}",
-                Deterministic: true);
+            float relicValue = RelicPickerAI.Score(option.Relic);
+            if (curseCost > 0f)
+                return new OptionScore(relicValue - curseCost, $"遗物实际:{option.Relic.Id.Entry}−诅咒{curseCost:0.#}", Deterministic: true);
+            return new OptionScore(relicValue, $"遗物实际:{option.Relic.Id.Entry}", Deterministic: true);
         }
 
         // 确定奖励：悬停里带具体卡牌 → 实际价值（多张卡时取平均，按 DeckContext 牌组上下文评分）。
@@ -64,23 +74,70 @@ internal static class EventOptionValuer
         }
         if (count > 0)
         {
+            float average = sum / count - curseCost;
             return new OptionScore(
-                sum / count,
-                count == 1 ? $"卡牌实际:{sum:0.#}" : $"卡牌×{count}平均:{sum / count:0.#}",
+                average,
+                count == 1 ? $"卡牌实际:{average:0.#}" : $"卡牌×{count}平均:{average:0.#}",
                 Deterministic: true);
         }
 
         // 随机奖励：作者填写的综合期望。
-        if (RandomAverageByTextKey.TryGetValue(option.TextKey, out float average))
+        if (RandomAverageByTextKey.TryGetValue(option.TextKey, out float expected))
         {
             return new OptionScore(
-                average,
-                $"随机期望({option.TextKey}):{average:0.#}",
+                expected,
+                $"随机期望({option.TextKey}):{expected:0.#}",
                 Deterministic: false);
         }
 
         // 未建模：价值 0、非确定 —— 调用方不做冒险重排（保持既有顺序）。
         return new OptionScore(0f, $"未建模({option.TextKey})", Deterministic: false);
+    }
+
+    /// <summary>统计选项悬停里出现的诅咒卡数量（诅咒作为展示代价的信号）。</summary>
+    private static int CountCurseTips(EventOption option)
+    {
+        int count = 0;
+        foreach (IHoverTip tip in option.HoverTips)
+        {
+            if (tip is CardHoverTip { Card.Type: CardType.Curse })
+                count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// LOST_WISP（迷失鬼火）：CLAIM = LostWisp 遗物 + Decay 诅咒。LostWisp 效果 = 打出能力牌时对全体
+    /// 敌人 8 伤（Unpowered）——没有能力牌 = 零收益。遗物价值 = min(30, 能力牌数×6) − 诅咒 14；
+    /// SEARCH = 60±15 金（点击时掷，期望 60 → 约 9 分）。
+    /// </summary>
+    private static OptionScore ScoreLostWisp(
+        LostWisp lostWisp,
+        EventOption option,
+        Player? player,
+        RunState? runState)
+    {
+        if (!option.TextKey.Contains(".CLAIM", StringComparison.OrdinalIgnoreCase))
+        {
+            // SEARCH：随机金币 45–75，期望 60，换算约 9 分。
+            return new OptionScore(9f, "LOST_WISP:SEARCH(期望60金)", Deterministic: false);
+        }
+
+        int powers = 0;
+        if (player?.Deck != null)
+        {
+            foreach (CardModel card in player.Deck.Cards)
+            {
+                if (card.Type == CardType.Power && card.Rarity != CardRarity.Curse)
+                    powers++;
+            }
+        }
+        float benefit = Math.Min(30f, powers * 6f);
+        float value = benefit - CursePenalty;
+        return new OptionScore(
+            value,
+            $"LOST_WISP:CLAIM 遗物协同 能力牌×{powers}({benefit:0.#}) − 诅咒{CursePenalty:0.#} = {value:0.#}",
+            Deterministic: true);
     }
 
     /// <summary>
