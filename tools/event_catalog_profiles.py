@@ -58,6 +58,8 @@ def emit():
     lines = []
     total_opts = 0
     emitted = 0
+    skipped_dupes = 0
+    seen = set()
     for rec in records:
         cls = rec.get("eventClass", "?")
         for opt in rec.get("options", []):
@@ -65,6 +67,10 @@ def emit():
             key = opt.get("textKey")
             if not key:
                 continue
+            if key in seen:
+                skipped_dupes += 1  # 通用选项 key（如 PROCEED）跨事件重复：首个事件优先
+                continue
+            seen.add(key)
             costs = []
             for c in opt.get("costs") or []:
                 amt = parse_amount(c.get("kind"), c.get("detail"), c.get("amount"))
@@ -115,7 +121,7 @@ internal static partial class EventOptionProfiles
 }
 """
     OUT.write_text(header + body + "\n" + footer, encoding="utf-8")
-    print(f"emitted={emitted}/{total_opts} options -> {OUT.name}")
+    print(f"emitted={emitted}/{total_opts} options (skipped dup textKey={skipped_dupes}) -> {OUT.name}")
 
 if __name__ == "__main__":
     emit()
