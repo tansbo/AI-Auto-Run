@@ -203,7 +203,10 @@ param(
     [int]$ClearPlayerBlockBeforeEndTurnForTest = 0,
     [int]$TimeoutSeconds = 150,
     [switch]$KeepGameOpen,
-    [switch]$ExitOnComplete
+    [switch]$ExitOnComplete,
+    [switch]$RunAutoFullRun,
+    [string]$RunAutoForcedPicks = "",
+    [switch]$RunAutoTelemetryEnabled
 )
 
 $ErrorActionPreference = "Stop"
@@ -429,6 +432,38 @@ function ConvertTo-NormalizedUtcTimestamp([object]$Value) {
     return $parsed.UtcDateTime.ToString("O", [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Resolve-ProcessExecutablePath(
+    [Diagnostics.Process]$ProcessObj,
+    [string]$Fallback = ""
+) {
+    # Start-Process -PassThru 返回的 Process.Path 有时是空串（已知 bug）。
+    # 逐级回退：原对象 .Path -> 重新 Get-Process 的 .Path -> MainModule.FileName，
+    # 全部不可用时返回 Fallback（写入 marker 时给 $gameExe；身份校验时给空串，
+    # 让校验保守失败而非崩溃）。
+    if ($null -ne $ProcessObj) {
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($ProcessObj.Path)) {
+                return [IO.Path]::GetFullPath($ProcessObj.Path)
+            }
+        } catch { }
+        try {
+            $fresh = Get-Process -Id $ProcessObj.Id -ErrorAction Stop
+            if (-not [string]::IsNullOrWhiteSpace($fresh.Path)) {
+                return [IO.Path]::GetFullPath($fresh.Path)
+            }
+        } catch { }
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($ProcessObj.MainModule.FileName)) {
+                return [IO.Path]::GetFullPath($ProcessObj.MainModule.FileName)
+            }
+        } catch { }
+    }
+    if ([string]::IsNullOrWhiteSpace($Fallback)) {
+        return ""
+    }
+    return [IO.Path]::GetFullPath($Fallback)
+}
+
 function Test-ProcessMatchesHeadlessIdentity(
     [Diagnostics.Process]$TestProcess,
     [string]$ExpectedStartTimeUtc,
@@ -447,7 +482,7 @@ function Test-ProcessMatchesHeadlessIdentity(
     if ($TestProcess.HasExited -or $TestProcess.ProcessName -ne "SlayTheSpire2") {
         return $false
     }
-    $actualExecutable = [IO.Path]::GetFullPath($TestProcess.Path)
+    $actualExecutable = Resolve-ProcessExecutablePath $TestProcess
     if (-not [string]::Equals(
             $actualExecutable,
             $ExpectedExecutable,
@@ -758,6 +793,9 @@ $request = [ordered]@{
     injectPlayerHpLossBeforeAutoSearchTurn = if ($InjectPlayerHpLossBeforeAutoSearchTurn -gt 0) { $InjectPlayerHpLossBeforeAutoSearchTurn } else { $null }
     injectPlayerHpLossAmount = $InjectPlayerHpLossAmount
     clearPlayerBlockBeforeEndTurnForTest = if ($ClearPlayerBlockBeforeEndTurnForTest -gt 0) { $ClearPlayerBlockBeforeEndTurnForTest } else { $null }
+    runAutoFullRun = $RunAutoFullRun.IsPresent
+    runAutoForcedPicks = $RunAutoForcedPicks
+    runAutoTelemetryEnabled = $RunAutoTelemetryEnabled.IsPresent
     exitOnComplete = $ExitOnComplete.IsPresent
 }
 if (-not [string]::IsNullOrWhiteSpace($InitialEnemyCurrentHpsJson)) {
@@ -1016,7 +1054,7 @@ if ($reusedProcess) {
 
 if (-not $reusedProcess) {
     Install-HeadlessDependency
-    $arguments = "--headless --disable-vsync --max-fps 0 --force-steam=off --log-file `"$headlessLogPath`""
+    $arguments = "--headless --audio-driver Dummy --disable-vsync --max-fps 0 --force-steam=off --log-file `"$headlessLogPath`""
     try {
         Assert-LauncherNotCancelled
         $process = Start-Process `
@@ -1040,7 +1078,7 @@ if (-not $reusedProcess) {
         if ($process.HasExited -or $process.ProcessName -ne "SlayTheSpire2") {
             throw "Started process exited or did not expose the expected game process."
         }
-        $processActualExecutable = [IO.Path]::GetFullPath($process.Path)
+        $processActualExecutable = Resolve-ProcessExecutablePath $process -Fallback $gameExe
     } catch {
         $launchError = $_
         if ($startedHere) {

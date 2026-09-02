@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Godot;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
@@ -11,6 +13,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
+using CombatSolver.Run;
 
 namespace CombatSolver;
 
@@ -31,6 +34,10 @@ internal sealed partial class UnattendedTestRunner
         public CombatState? CombatState { get; private set; }
         public int StartedTurn { get; private set; }
 
+        /// <summary>整局探针：主线程卡住时后台线程仍可写文件，用于定位战斗回合卡在哪一步。</summary>
+        private CancellationTokenSource? _probeCts;
+        private string? _probePath;
+
         public async Task<ScenarioContext> BuildAsync()
         {
             UnattendedTestRequest request = runner._request;
@@ -40,6 +47,13 @@ internal sealed partial class UnattendedTestRunner
             runner.EnsureWithinDeadline();
             if (RunManager.Instance.IsInProgress)
                 throw new InvalidOperationException("无人测试要求从无进行中跑局的独立游戏进程启动。");
+
+            // 整局模式：开跑前注入 RunAuto 设置，否则 RunStartedEvent 时 Enabled 为 false 不会建会话。
+            if (request.RunAutoFullRun)
+            {
+                ApplyRunAutoFullRunSettings();
+                StartRunProbe();
+            }
 
             CharacterModel character = ResolveUnique(ModelDb.AllCharacters, request.CharacterId, "角色");
             EncounterModel encounter = ResolveUnique(ModelDb.AllEncounters, request.EncounterId, "遭遇");
@@ -60,6 +74,21 @@ internal sealed partial class UnattendedTestRunner
                 GameMode.Standard,
                 request.Ascension);
             runner.EnsureWithinDeadline();
+
+            // 整局模式：不进战斗，等 RunAuto 驱动到跑局结束（会话在 RunEnded 后被清空）。
+            if (request.RunAutoFullRun)
+            {
+                try
+                {
+                    await WaitForRunAutoSessionToClearAsync();
+                    return null!;
+                }
+                finally
+                {
+                    StopRunProbe();
+                }
+            }
+            StopRunProbe();
 
             runner.SetStage("inject_run_relics");
             RunState runState = RunManager.Instance.DebugOnlyGetState()
@@ -223,6 +252,195 @@ internal sealed partial class UnattendedTestRunner
                 orbChecks,
                 potionChecks,
                 monsterMoveChecks);
+        }
+
+        /// <summary>注入整局模式设置：全自动跑局开启 + 快速动画 + 调试日志。战斗求解器全自动由 RunAuto 的 OnCombatStarting 自动开启。</summary>
+        private void ApplyRunAutoFullRunSettings()
+        {
+            // BeginRequest 会关掉自动回合搜索；整局模式依赖 Entry.OnTurnStarted 的自动搜索，需重新打开。
+            runner._protocolHost.EnableAutomaticTurnSearch();
+            SolverSettingsData data = SolverSettings.Current with
+            {
+                RunAutoEnabled = true,
+                RunAutoStopOnGameOver = true,
+                // FastMode 疑似在 headless 下让游戏原生自动出牌阶段卡死，先关掉定位。
+                RunAutoFastMode = false,
+                RunAutoDebugLog = true,
+                RunAutoForcedPicks = runner._request.RunAutoForcedPicks ?? string.Empty,
+                RunAutoTelemetryEnabled = runner._request.RunAutoTelemetryEnabled,
+                // 偏差诊断：整局冒烟开启详细日志，战斗每回合结束输出
+                // HP_PREDICTION（搜索预测 vs 实机复核投影），用于定位计划掉血偏差。
+                EnableDetailedDiagnosticLogs = true,
+                // 无人整局训练：没有人类旁观，live_end_turn_risk 停止全自动只会让战斗卡死。
+                // 实机偏差或预测死亡时，让战斗自然打到底，由 RunEnded 收尾并记录胜负。
+                StopFullAutoOnDeathTurn = false,
+                StopFullAutoOnWorseRecalculation = false,
+            };
+            SolverSettings.ApplyForTesting(data);
+            // ApplyForTesting 只改 SolverSettings._current；SolverController 的
+            // _stopFullAutoOnDeathTurn/_stopFullAutoOnWorseRecalculation 等静态字段
+            // 是启动时由 ApplyPersistentSettings 快照来的，必须再同步一次才会生效。
+            SolverController.ApplyPersistentSettings(SolverSettings.Capture());
+        }
+
+        /// <summary>
+        /// 等整局被 RunAuto 驱动结束：先见到会话（RunStarted），再等到会话被清空（RunEnded）。
+        /// 超时由 runner 的 EnsureWithinDeadline（请求 TimeoutSeconds）兜底。
+        /// 注意：轮询用 Task.Delay（线程池），不用 ProcessFrame——跑局结束后（死亡/结算屏）场景树
+        /// 可能停住，ProcessFrame 信号不再恢复等待，导致整局收尾永远卡住（已实证）。
+        /// </summary>
+        private async Task WaitForRunAutoSessionToClearAsync()
+        {
+            bool seenSession = false;
+            var diagnosticTimer = Stopwatch.StartNew();
+            TimeSpan lastDiagnostic = TimeSpan.Zero;
+            while (true)
+            {
+                runner.EnsureWithinDeadline();
+                bool active = RunAutoController.Session != null;
+                if (active)
+                    seenSession = true;
+                if (seenSession && !active)
+                    return;
+                TimeSpan elapsed = diagnosticTimer.Elapsed;
+                if (elapsed - lastDiagnostic >= TimeSpan.FromSeconds(30))
+                {
+                    lastDiagnostic = elapsed;
+                    LogFullRunDiagnostic(elapsed);
+                }
+                await Task.Delay(250);
+            }
+        }
+
+        /// <summary>整局冒烟诊断：每 30s 打印战斗/跑局状态，便于定位 headless 卡在哪一步。</summary>
+        private void LogFullRunDiagnostic(TimeSpan elapsed)
+        {
+            RunAutoSession? session = RunAutoController.Session;
+            string runState = session == null
+                ? "no-session"
+                : $"phase={session.Phase} room={session.CurrentRoomType} rooms_handled={session.RoomsHandled}";
+            string combatState = "no-combat";
+            if (CombatManager.Instance is { IsInProgress: true })
+            {
+                CombatState? state = CombatManager.Instance.DebugOnlyGetState();
+                if (state != null)
+                {
+                    Player? player = LocalContext.GetMe(state);
+                    combatState =
+                        $"round={state.RoundNumber} side={state.CurrentSide} " +
+                        $"phase={player?.PlayerCombatState?.Phase} " +
+                        $"turn={player?.PlayerCombatState?.TurnNumber} " +
+                        $"setup_pending={PlayerTurnSetupCoordinator.HasPendingPlannedChoice(state)} " +
+                        $"full_auto={SolverController.FullAutoEnabled}";
+                }
+            }
+            Entry.Logger.Info(
+                $"[CombatSolver/Unattended] FULL_RUN_DIAGNOSTIC elapsed_s={elapsed.TotalSeconds:0.#} " +
+                $"run=[{runState}] combat=[{combatState}]");
+        }
+
+        /// <summary>
+        /// 后台探针：主线程被 StartNewSingleplayerRun 卡住时，后台线程仍每秒写一次
+        /// 战斗/跑局状态到 user://full_run_probe.log，用于定位回合不开始的原因。
+        /// 只在整局模式启用，跑局结束（会话清空）后停止。
+        /// </summary>
+        private void StartRunProbe()
+        {
+            if (_probeCts != null)
+                return;
+            _probePath = Path.Combine(
+                ProjectSettings.GlobalizePath("user://"),
+                "full_run_probe.log");
+            File.AppendAllText(_probePath, $"probe_started_t={System.Environment.TickCount64}\n");
+            CancellationTokenSource cts = new();
+            _probeCts = cts;
+            _ = Task.Run(async () =>
+            {
+                while (!cts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        File.AppendAllText(_probePath, BuildProbeLine());
+                    }
+                    catch
+                    {
+                        // 探针文件写入失败不致命，继续尝试。
+                    }
+                    try
+                    {
+                        await Task.Delay(1000, cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+
+        private void StopRunProbe()
+        {
+            CancellationTokenSource? cts = _probeCts;
+            _probeCts = null;
+            if (cts == null)
+                return;
+            try
+            {
+                if (_probePath != null)
+                    File.AppendAllText(_probePath, "probe_stopped\n");
+            }
+            catch
+            {
+                // 忽略探针停止时的写入失败。
+            }
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        private string BuildProbeLine()
+        {
+            string combat = "no-combat";
+            try
+            {
+                if (CombatManager.Instance is { IsInProgress: true })
+                {
+                    CombatState? state = CombatManager.Instance.DebugOnlyGetState();
+                    if (state != null)
+                    {
+                        Player? player = LocalContext.GetMe(state);
+                        combat =
+                            $"combat round={state.RoundNumber} side={state.CurrentSide} " +
+                            $"phase={player?.PlayerCombatState?.Phase} turn={player?.PlayerCombatState?.TurnNumber} " +
+                            $"setup_pending={PlayerTurnSetupCoordinator.HasPendingPlannedChoice(state)} " +
+                            $"full_auto={SolverController.FullAutoEnabled}";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                combat = $"probe-combat-error={ex.GetType().Name}";
+            }
+            string run = "no-session";
+            try
+            {
+                RunAutoSession? session = RunAutoController.Session;
+                if (session != null)
+                    run = $"run phase={session.Phase} room={session.CurrentRoomType} rooms={session.RoomsHandled}";
+            }
+            catch (Exception ex)
+            {
+                run = $"probe-run-error={ex.GetType().Name}";
+            }
+            ulong frames = 0;
+            try
+            {
+                frames = Godot.Engine.GetProcessFrames();
+            }
+            catch
+            {
+                // 帧计数读取失败忽略。
+            }
+            return $"t={System.Environment.TickCount64} frames={frames} {run} | {combat}\n";
         }
     }
 }

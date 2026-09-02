@@ -176,6 +176,12 @@ internal sealed class UnattendedTestRequest
     public int? InjectPlayerHpLossBeforeAutoSearchTurn { get; init; }
     public int InjectPlayerHpLossAmount { get; init; }
     public int? ClearPlayerBlockBeforeEndTurnForTest { get; init; }
+    /// <summary>整局模式：开新局后让 RunAutoController 驱动到跑局结束（用于种子重放训练），不进入战斗场景。</summary>
+    public bool RunAutoFullRun { get; init; }
+    /// <summary>A/B 强制抓牌策略（格式 "cardId:take,cardId:skip"，见 RunAutoSettings.TryGetForcedPick）。</summary>
+    public string RunAutoForcedPicks { get; init; } = string.Empty;
+    /// <summary>整局遥测开关：跑局结束后写 user://run_telemetry/ 结构化 JSON（种子重放 A/B 数据源）。</summary>
+    public bool RunAutoTelemetryEnabled { get; init; }
     public bool ExitOnComplete { get; init; } = true;
 }
 

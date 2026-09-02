@@ -1,5 +1,6 @@
 using Godot;
 using MegaCrit.Sts2.Core.Localization.Fonts;
+using CombatSolver.Run;
 
 namespace CombatSolver;
 
@@ -9,6 +10,8 @@ internal sealed partial class SolverSettingsPanel
     private CheckButton _stopOnCombatEnd = null!;
     private CheckButton _stopOnDeathTurn = null!;
     private CheckButton _stopOnWorseRecalculation = null!;
+    private CheckButton _runAutoEnabled = null!;
+    private CheckButton _runAutoFastMode = null!;
     private OptionButton _searchCompletionNotificationPolicy = null!;
     private OptionButton _potionPolicy = null!;
     private OptionButton _overlayTheme = null!;
@@ -108,6 +111,24 @@ internal sealed partial class SolverSettingsPanel
             "搜索成功、失败、停止或结果过期时发送 Windows 系统通知和提示音。可关闭、仅在游戏不处于前台时通知，或始终通知；其他平台不会调用 Windows 接口。");
         content.AddChild(solverGrid);
 
+        content.AddChild(CreateSectionHeading("全自动跑局"));
+        GridContainer runGrid = CreateSettingsGrid();
+        _runAutoEnabled = CreateToggle();
+        _runAutoEnabled.Toggled += OnRunAutoEnabledToggled;
+        AddBasicRow(
+            runGrid,
+            "启用全自动跑局",
+            _runAutoEnabled,
+            "开启后自动完成一整局单人游戏：自动选牌、地图选路、篝火/商店/事件处理。战斗仍由战斗求解器全自动执行。");
+        _runAutoFastMode = CreateToggle();
+        _runAutoFastMode.Toggled += OnRunAutoFastModeToggled;
+        AddBasicRow(
+            runGrid,
+            "跑局时游戏加速",
+            _runAutoFastMode,
+            "跑局期间把游戏动画切换到快速模式以缩短观看时间，跑局结束后恢复原设置。");
+        content.AddChild(runGrid);
+
         content.AddChild(CreateSectionHeading("自动执行"));
         GridContainer executionGrid = CreateSettingsGrid();
         _stopOnCombatEnd = CreateToggle();
@@ -151,6 +172,8 @@ internal sealed partial class SolverSettingsPanel
         _stopOnCombatEnd.ButtonPressed = data.StopFullAutoOnCombatEnd;
         _stopOnDeathTurn.ButtonPressed = data.StopFullAutoOnDeathTurn;
         _stopOnWorseRecalculation.ButtonPressed = data.StopFullAutoOnWorseRecalculation;
+        _runAutoEnabled.ButtonPressed = data.RunAutoEnabled;
+        _runAutoFastMode.ButtonPressed = data.RunAutoFastMode;
     }
 
     private OptionButton CreateSearchCompletionNotificationPolicyInput()
@@ -277,6 +300,22 @@ internal sealed partial class SolverSettingsPanel
         row.AddChild(_overlayOpacity);
         row.AddChild(_overlayOpacityValue);
         return row;
+    }
+
+    private void OnRunAutoEnabledToggled(bool enabled)
+    {
+        if (_loading)
+            return;
+        RunAutoSettings.SetEnabled(enabled);
+        SetStatus(enabled ? "全自动跑局已开启" : "全自动跑局已关闭", SolverUiTokens.Palette.Success);
+    }
+
+    private void OnRunAutoFastModeToggled(bool enabled)
+    {
+        if (_loading)
+            return;
+        SolverSettings.Update(SolverSettings.Current with { RunAutoFastMode = enabled });
+        SetStatus("已保存，跑局开始后生效", SolverUiTokens.Palette.Success);
     }
 
     private void OnSolverEnabledToggled(bool enabled)

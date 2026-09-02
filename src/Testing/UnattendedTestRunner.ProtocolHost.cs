@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Godot;
+using CombatSolver.Run;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
@@ -16,6 +18,10 @@ internal sealed partial class UnattendedTestRunner
     private sealed class ProtocolHost
     {
         private bool _requestLoopStarted;
+        private NGame? _host;
+        private UnattendedTestRequest? _activeRequest;
+        private DateTimeOffset _requestStartedAtUtc;
+        private int _fullRunFinalized;
         private int _acceptedRequestCount;
         private int _injectPlayerHpLossTurn;
         private int _injectPlayerHpLossAmount;
@@ -38,12 +44,79 @@ internal sealed partial class UnattendedTestRunner
                 return;
 
             _requestLoopStarted = true;
+            _host = host;
             TaskHelper.RunSafely(RunRequestLoopAsync(host));
             Entry.Logger.Info("[CombatSolver/Unattended] REQUEST_LOOP_STARTED reuse_process=true");
         }
 
         public void EnableAutomaticTurnSearch()
             => AutomaticTurnSearchEnabled = true;
+
+        /// <summary>
+        /// 整局模式收尾。RunEndedEvent 在主线程同步派发（实证可运行），这里直接写结果 JSON 并按需退出——
+        /// 不能依赖 RunFullRunAsync 里的异步等待：跑局结束后该等待的延续被证实冻结、永不恢复，
+        /// 导致结果永远不落盘、游戏永不退出。只对活动中的 FullRun 请求生效，一次跑局只收尾一次。
+        /// </summary>
+        public void NotifyFullRunEnded(CombatSolver.Run.RunAutoSession ended, STS2RitsuLib.RunEndedEvent evt)
+        {
+            if (!IsActive
+                || _activeRequest is not { RunAutoFullRun: true } request
+                || Interlocked.Exchange(ref _fullRunFinalized, 1) != 0)
+            {
+                return;
+            }
+
+            double elapsedMilliseconds = (DateTimeOffset.UtcNow - _requestStartedAtUtc).TotalMilliseconds;
+            RuntimeMemorySnapshot memory = CaptureRuntimeMemory();
+            string resultPath = UnattendedTestFiles.GlobalPath(UnattendedTestFiles.ResultUri);
+            string tempPath = resultPath + ".tmp";
+            File.WriteAllText(
+                tempPath,
+                JsonSerializer.Serialize(
+                    new UnattendedTestResult
+                    {
+                        RunId = request.RunId,
+                        ScenarioId = request.ScenarioId,
+                        Status = "Passed",
+                        Stage = "full_run_driving",
+                        CharacterId = request.CharacterId,
+                        EncounterId = "-",
+                        Seed = request.Seed,
+                        StartedAtUtc = _requestStartedAtUtc,
+                        ElapsedMilliseconds = elapsedMilliseconds,
+                        MainThread = NGame.IsMainThread(),
+                        CombatEnded = true,
+                        StartedTurn = 0,
+                        FinishedTurn = 0,
+                        ManagedHeapBytes = memory.ManagedHeapBytes,
+                        ManagedFragmentedBytes = memory.ManagedFragmentedBytes,
+                        WorkingSetBytes = memory.WorkingSetBytes,
+                        PrivateMemoryBytes = memory.PrivateMemoryBytes,
+                    },
+                    UnattendedTestFiles.JsonOptions));
+            File.Move(tempPath, resultPath, true);
+
+            Entry.Logger.Info(
+                $"[CombatSolver/Unattended] FULL_RUN_ENDED run_id={request.RunId} " +
+                $"victory={evt.IsVictory} abandoned={evt.IsAbandoned} rooms_handled={ended.RoomsHandled} " +
+                $"elapsed_ms={elapsedMilliseconds:F1} result=Passed");
+            if (request.ExitOnComplete)
+            {
+                UnattendedAsyncActivityTracker.AbortRequest();
+                _host?.GetTree().Quit(0);
+            }
+        }
+
+        private static RuntimeMemorySnapshot CaptureRuntimeMemory()
+        {
+            GCMemoryInfo gc = GC.GetGCMemoryInfo();
+            using Process process = Process.GetCurrentProcess();
+            return new RuntimeMemorySnapshot(
+                gc.HeapSizeBytes,
+                gc.FragmentedBytes,
+                process.WorkingSet64,
+                process.PrivateMemorySize64);
+        }
 
         public async Task ApplyScheduledStateDriftAsync(CombatState state, int turn)
         {
@@ -298,6 +371,9 @@ internal sealed partial class UnattendedTestRunner
             if (!request.ExitOnComplete)
                 UnattendedAsyncActivityTracker.BeginRequest();
             IsActive = true;
+            _activeRequest = request;
+            _requestStartedAtUtc = DateTimeOffset.UtcNow;
+            _fullRunFinalized = 0;
             _injectPlayerHpLossTurn = request.InjectPlayerHpLossBeforeAutoSearchTurn ?? 0;
             _injectPlayerHpLossAmount = request.InjectPlayerHpLossAmount;
             _injectedPlayerHpLoss = 0;
@@ -323,6 +399,7 @@ internal sealed partial class UnattendedTestRunner
         private void Reset()
         {
             IsActive = false;
+            _activeRequest = null;
             AutomaticTurnSearchEnabled = true;
             VerifyIncrementalSearch = false;
             ForceShortSearchOnly = false;

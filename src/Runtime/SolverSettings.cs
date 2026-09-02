@@ -84,6 +84,15 @@ internal sealed record SolverSettingsData
     public string? ReporterContactQq { get; init; }
     public SolverOverlayTheme OverlayTheme { get; init; } = SolverOverlayTheme.Dark;
     public float OverlayOpacity { get; init; } = 1f;
+    // 全自动跑局（Run AI）设置。战斗内仍走 Combat Solver 全自动，战斗间由 RunAutoController 接管。
+    public bool RunAutoEnabled { get; init; }
+    public bool RunAutoStopOnGameOver { get; init; } = true;
+    public bool RunAutoFastMode { get; init; } = true;
+    public bool RunAutoDebugLog { get; init; }
+    // A/B 种子重放训练：种子覆盖 + 强制抓牌策略 + 对局遥测。
+    public string? RunAutoSeedOverride { get; init; }
+    public string RunAutoForcedPicks { get; init; } = string.Empty;
+    public bool RunAutoTelemetryEnabled { get; init; }
 }
 
 internal sealed record SolverSettingsSnapshot(
@@ -208,7 +217,14 @@ internal static class SolverSettings
             $"deployment_fast_mode={loaded.DeploymentFastMode} " +
             $"deployment_delay_seconds={loaded.DeploymentInterActionDelaySeconds ?? 0d:0.###} " +
             $"overlay_theme={loaded.OverlayTheme} " +
-            $"overlay_opacity={loaded.OverlayOpacity:0.##}");
+            $"overlay_opacity={loaded.OverlayOpacity:0.##} " +
+            $"run_auto_enabled={loaded.RunAutoEnabled} " +
+            $"run_auto_stop_on_game_over={loaded.RunAutoStopOnGameOver} " +
+            $"run_auto_fast_mode={loaded.RunAutoFastMode} " +
+            $"run_auto_debug_log={loaded.RunAutoDebugLog} " +
+            $"run_auto_seed_override={(loaded.RunAutoSeedOverride is { Length: > 0 } ? loaded.RunAutoSeedOverride : "-")} " +
+            $"run_auto_forced_picks={(loaded.RunAutoForcedPicks is { Length: > 0 } ? loaded.RunAutoForcedPicks : "-")} " +
+            $"run_auto_telemetry={loaded.RunAutoTelemetryEnabled}");
     }
 
     public static SolverSettingsSnapshot Capture()
@@ -406,6 +422,10 @@ internal static class SolverSettings
         ValidateRange(data.OverlayOpacity, 0.25f, 1f, nameof(data.OverlayOpacity));
         if (data.ReporterContactQq is { Length: > 64 })
             throw new InvalidDataException($"{nameof(data.ReporterContactQq)} must be at most 64 characters.");
+        if (data.RunAutoSeedOverride is { Length: > 64 })
+            throw new InvalidDataException($"{nameof(data.RunAutoSeedOverride)} must be at most 64 characters.");
+        if (data.RunAutoForcedPicks is { Length: > 512 })
+            throw new InvalidDataException($"{nameof(data.RunAutoForcedPicks)} must be at most 512 characters.");
     }
 
     private static void ValidateRange(double? value, double minimum, double maximum, string name)

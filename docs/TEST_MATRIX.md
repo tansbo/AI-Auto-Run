@@ -6,6 +6,20 @@
 
 维护时默认使用分层快速回归：普通语义改动跑单效果严格差分；Fork、跨回合历史和续用改动补一个最小两回合或最早复用边界；搜索/部署改动的最终候选才运行必要的完整自动场。快速 unattended 请求总超时不超过 `120` 秒，超时后缩小 fixture 或记为未验证，不在同一轮延长等待。下方完整矩阵是发布门禁和专项审计入口，不是每次修复都要执行的默认清单。
 
+## Run AI：全自动跑局子系统（未发布，开发中）
+
+> 该子系统不改变任何战斗求解行为，全部逻辑由设置项 `RunAutoEnabled` 门控（默认关闭）。以下条目记录开发批次的构建/结构门禁与尚未完成的实机冒烟。
+
+| 场景 | 结果 | 验证内容 | 日期 |
+| --- | --- | --- | --- |
+| 批次 A：基础框架 | 通过（构建+门禁） | `RunAutoController`/`RunAutoSession`/`RunAutoSettings`/`RunUiHelper` 与 RitsuLib 事件订阅。Release 构建 0 警告 0 错误；`REFACTOR_BOUNDARIES_OK`。 | 2026-08-31 |
+| 批次 B：核心循环 | 通过（构建+门禁） | `CardRewardDriver`+`NCardRewardScreenPatch`、`CardPickerAI`、`MapRouter`、`RestSiteDriver`。构建/门禁通过；DLL 已复制到游戏 mods 目录。 | 2026-08-31 |
+| 批次 C：全覆盖 | 通过（构建+门禁） | `ShopDriver`（含卡牌移除覆盖层排空）、`EventDriver`（避开致死选项/事件战斗/Ancient 翻页）、`RelicRewardDriver`+`NChooseARelicScreenPatch`（遗物选择/宝箱房）、`RelicPickerAI`。构建/门禁通过；DLL 已复制。 | 2026-08-31 |
+| 批次 D：打磨 | 通过（构建+门禁） | `RunAutoOverlay` 状态展示、`OnCombatEnded` TODO 清理、`docs/ARCHITECTURE.md`/`TEST_MATRIX.md` 更新。构建 0 警告 0 错误；门禁通过；DLL 已复制。 | 2026-08-31 |
+| 主菜单设置页 + 先古遗物智能 | 通过（构建+门禁） | `RunAutoSettingsPage` 在 RitsuLib 模组设置注册 4 开关（主菜单可访问）；`RelicPickerAI` 先古遗物按运行时类名识别诅咒、选最优正向，权重按反编译实际效果校准，并做**路线感知**（地图在 Neow 前已生成，BFS 统计前 5 行精英/小怪/篝火/商店密度微调加成）。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
+| Neow 卡住修复 | 已修复（待实机复测） | `EventDriver` Ancient 对话改 AutoSlay 配方（点不到 hitbox 就重试不退出），选项收集加 `IsEnabled`，先古遗物选择点击前停顿 1.5s 显示推荐。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
+| 实机冒烟（待做） | 待用户确认 | 用户开启"全自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。评分 AI（`CardPickerAI`/`RelicPickerAI`）纯逻辑单测依赖 headless fixture，未纳入本轮。 | — |
+
 ## 0.22.9
 
 | 场景 | 结果 | 验证内容 | 日期 |

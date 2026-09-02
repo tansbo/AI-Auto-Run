@@ -130,7 +130,45 @@ renderer 不得重新读取 `SolverResult`、`PlanAction`、`PlanCardChoice` 或
 
 `SolverSettingsPanel.BugReports` 持有问题包导出/上传的单实例 UI 生命周期、取消令牌、进度条和线程安全完成邮箱，并把文件发送和服务端确认显示为两个阶段。后台任务只向完成邮箱发布一次 `Succeeded / Canceled / Failed`；面板自己的 `_Process` 每帧先消费终态，再处理字节进度或取消等待，并在同一次终态消费中释放令牌、收起进度条、替换状态消息和恢复按钮。上传生命周期不依赖搜索使用的 `SolverDispatcher`。`CombatBugReportUploader` 不持有 Godot 控件，后台传输只通过 `IProgress<CombatBugReportUploadProgress>` 发布字节计数。进度到达文件总字节数只代表请求正文已经写出，只有服务端回执同时确认反馈编号和实收字节数才算上传成功。
 
-## 7. Unattended 测试
+## 7. Run AI（全自动跑局子系统）
+
+`src/Run/` 是一个独立的跑局级编排子系统，全部由设置项 `RunAutoEnabled` 门控，仅单人跑局生效。它**不**参与战斗内搜索与模拟，只接管战斗之间（奖励/地图/非战斗房）的 UI 驱动。战斗内仍由战斗求解器全自动接管。
+
+运行链：
+
+```text
+RitsuLib 跑局事件（RunStarted/RoomEntered/CombatVictory/...）
+  -> RunAutoController（阶段机分派，主线程）
+  -> 各房间/屏幕驱动（RunSafely 后台任务，主线程轮询 UI）
+  -> 选牌/遗物/地图评分 AI（只读不可变模型，无模拟）
+```
+
+| 文件 | 职责 | 不负责 |
+|---|---|---|
+| `src/Run/RunAutoController.cs` | 订阅 RitsuLib 跑局事件、维护 `RunAutoSession` 阶段机、按 `RoomType` 分派到各驱动；开启时接管原版 FastMode | 战斗搜索、卡牌/遗物评分 |
+| `src/Run/RunAutoSession.cs` | 跑局级状态（当前房型/阶段/已选卡牌/最近决策）与跑局级取消令牌（RunEnded 时取消） | 驱动逻辑 |
+| `src/Run/RunAutoSettings.cs` | 读取持久化在 `SolverSettingsData` 的 Run AI 设置，及四个开关的 setter | 设置 UI 与持久化本身 |
+| `src/Run/RunAutoSettingsPage.cs` | 在 RitsuLib 模组设置中注册"全自动跑局"四个开关（主菜单可访问），绑定读写 `SolverSettingsData` | 持久化与决策 |
+| `src/Run/RunUiHelper.cs` | 移植 AutoSlay 的点击/查找/等待配方（`ForceClick`、递归 `FindAll<T>`、超时轮询） | 决策逻辑 |
+| `src/Run/CardPickerAI.cs` | 战后卡牌结构评分（稀有度+费用效率+牌组契合+关键词+精选表），返回选/跳过 | UI 驱动 |
+| `src/Run/RelicPickerAI.cs` | 遗物结构评分（稀有度+精选表）；先古遗物按运行时类名识别诅咒并选最优正向，返回选/跳过 | UI 驱动 |
+| `src/Run/CardRewardDriver.cs` + `NCardRewardScreenPatch.cs` | 战后卡牌奖励自动选牌/跳过 | 评分 |
+| `src/Run/RewardsScreenDriver.cs` | 战后 `NRewardsScreen` 逐个领取奖励，子覆盖层等其自处理 | 评分 |
+| `src/Run/MapRouter.cs` | 地图按 `MapPointType` 评分选路并点击前进，等 `RoomEntered` | 房间内部驱动 |
+| `src/Run/RestSiteDriver.cs` | 篝火低血量回血、否则升级，处理升级选牌覆盖层 | 评分 |
+| `src/Run/ShopDriver.cs` | 商店打开商品栏评分购买，购买排空移除覆盖层，关栏离开 | 评分 |
+| `src/Run/EventDriver.cs` | 事件逐个选非致死选项，纯遗物选项走先古遗物评分选最优正向，事件内战斗交给求解器，Ancient 翻页 | 战斗 |
+| `src/Run/RelicRewardDriver.cs` + `NChooseARelicScreenPatch.cs` | 遗物选择屏幕（Boss/珠宝盒）与宝箱房拾取 | 评分 |
+| `src/Run/RunAutoOverlay.cs` | 屏幕底部一行跑局状态展示（幕/层/阶段/最近决策） | 一切决策与交互 |
+
+关键约束（与战斗求解器一致）：
+
+- 所有驱动只在主线程轮询 UI；后台搜索不读取 live 值；评分 AI 只读不可变 `CardModel`/`RelicModel`/`RunState`。
+- 所有 `await Task.Delay` 走会话级取消令牌；`RunEndedEvent` 时各驱动以 `OperationCanceledException` 静默退出。
+- 购买卡牌移除会打开 `NDeckCardSelectScreen` 覆盖层并 await 其 completion source，因此先启动购买 Task 不 await、边等边排空覆盖层，避免死锁。
+- 重复启动用静态 `_active` 标志去重。
+
+## 8. Unattended 测试
 
 `UnattendedTestRunner` 保留请求级编排和现有 fixture helper。新增流程应落到明确所有者：
 
@@ -144,7 +182,7 @@ renderer 不得重新读取 `SolverResult`、`PlanAction`、`PlanCardChoice` 或
 
 不要从深层 fixture 直接写结果，不要在 entry 中重新建立战斗，也不要让断言负责执行动作。
 
-## 8. 工具与结构门禁
+## 9. 工具与结构门禁
 
 - `tools/run-unattended-test.ps1` / `tools/run-unattended-test.sh`：Windows / Linux 的平台原生入口，负责隔离 headless 进程、请求协议和结果读取。
 - `tools/run-visible-steam-benchmark.ps1` / `tools/run-visible-steam-benchmark.sh`：Windows / Linux 的平台原生入口，负责正常可见 Steam 会话的搜索、GC 与帧口径。

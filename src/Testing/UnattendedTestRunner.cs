@@ -33,6 +33,7 @@ using MegaCrit.Sts2.Core.Settings;
 using MegaCrit.Sts2.Core.ValueProps;
 using CombatSolver.Engine.Common;
 using CombatSolver.Engine.InCombat.Simulation;
+using CombatSolver.Run;
 
 namespace CombatSolver;
 
@@ -89,6 +90,10 @@ internal sealed partial class UnattendedTestRunner
 
     public static void TryStart(NGame? host) => Host.TryStart(host);
 
+    /// <summary>整局收尾：RunEnded 时同步写结果并退出（见 <see cref="ProtocolHost.NotifyFullRunEnded"/>）。</summary>
+    internal static void NotifyFullRunEnded(CombatSolver.Run.RunAutoSession ended, STS2RitsuLib.RunEndedEvent evt)
+        => Host.NotifyFullRunEnded(ended, evt);
+
     internal static Task ApplyScheduledStateDriftAsync(CombatState state, int turn)
         => Host.ApplyScheduledStateDriftAsync(state, turn);
 
@@ -101,6 +106,12 @@ internal sealed partial class UnattendedTestRunner
         int startedTurn = 0;
         try
         {
+            if (_request.RunAutoFullRun)
+            {
+                await RunFullRunAsync();
+                return RunCompletion.Passed;
+            }
+
             ScenarioContext scenario = await _scenarioBuilder.BuildAsync();
             combatState = scenario.CombatState;
             startedTurn = scenario.StartedTurn;
@@ -191,6 +202,34 @@ internal sealed partial class UnattendedTestRunner
         {
             _executor.RestoreSettings();
             RestoreHeadlessFastModeOverride();
+        }
+    }
+
+    /// <summary>整局模式：开新局 → RunAuto 驱动到跑局结束 → 记 Passed。设置注入在 ScenarioBuilder 内完成，这里负责收尾与恢复。</summary>
+    private async Task RunFullRunAsync()
+    {
+        SolverSettingsData settingsBefore = SolverSettings.Current;
+        try
+        {
+            SetStage("full_run_driving");
+            await _scenarioBuilder.BuildAsync();
+            SetStage("passed");
+            _writer.Write(
+                "Passed",
+                _stage,
+                _request.CharacterId,
+                "-",
+                combatEnded: true,
+                startedTurn: 0,
+                finishedTurn: 0);
+            Entry.Logger.Info(
+                $"[CombatSolver/Unattended] FULL_RUN PASSED run_id={_request.RunId} scenario={_request.ScenarioId} " +
+                $"seed={_request.Seed} elapsed_ms={_stopwatch.Elapsed.TotalMilliseconds:F1}");
+            await ExitIfRequestedAsync(0);
+        }
+        finally
+        {
+            SolverSettings.ApplyForTesting(settingsBefore);
         }
     }
 

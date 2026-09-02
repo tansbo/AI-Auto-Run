@@ -21,3 +21,6 @@ Thumbs.db
 *.bak
 .local/
 releases/*.zip
+
+# Python tooling cache
+__pycache__/

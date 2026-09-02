@@ -1303,6 +1303,16 @@ internal static class SolverController
         StartDeployment(host, state, result);
     }
 
+    /// <summary>搜索在第 turn 回合预测的敌人招式（格式同 LiveEndTurnRiskProjection.MonsterMoves，便于对比）。</summary>
+    private static string DescribeForecastMoves(SolverResult result, int turn)
+    {
+        int round = turn - result.StartTurnNumber;
+        if (round < 0 || round >= result.Forecast.Rounds.Count)
+            return "-";
+        return string.Join(',', result.Forecast.Rounds[round].Select(move =>
+            $"{move.Owner.Monster?.Id.Entry ?? "?"}:{move.Move.Id}"));
+    }
+
     private static void StartDeployment(NGame host, CombatState state, SolverResult result)
     {
         bool hasCurrentTurnPlan = result.BestNode.Actions.Any(action =>
@@ -1367,8 +1377,12 @@ internal static class SolverController
         {
             if (overrideFastMode is { } requestedFastMode)
                 SaveManager.Instance.PrefsSave.FastMode = requestedFastMode;
+            // 偏差诊断：记录玩家回合开始时的实机 HP（即上一敌方回合后的真实血量），
+            // 与 HP_PREDICTION 的 live_hp_before/live_hp_lost 对比可得出「投影 vs 实机」掉血差。
+            Player deployPlayer = LocalContext.GetMe(state)!;
             Entry.Logger.Info(
                 $"[CombatSolver/Test] DEPLOY_START turn={turn} action_count={actions.Count} " +
+                $"player_hp={deployPlayer.Creature.CurrentHp} " +
                 $"fast_mode={deploymentSettings.DeploymentFastMode} " +
                 $"inter_action_delay_seconds={deploymentSettings.DeploymentInterActionDelaySeconds:0.###}");
             for (int actionIndex = 0; actionIndex < actions.Count; actionIndex++)
@@ -1524,14 +1538,24 @@ internal static class SolverController
                     return;
                 }
                 Player player = LocalContext.GetMe(state)!;
-                if (_combat.FullAutoEnabled
-                    && (_stopFullAutoOnDeathTurn || _stopFullAutoOnWorseRecalculation))
+                if (_combat.FullAutoEnabled)
                 {
                     await UnattendedTestRunner.ApplyScheduledPreEndTurnDriftAsync(state, turn);
                     LiveEndTurnRiskProjection liveRisk = LiveEndTurnRiskEvaluator.Evaluate(
                         state,
                         plannedEndTurn.TurnStartChoices);
                     int plannedHpLoss = result.HpLostByTurn.GetValueOrDefault(turn);
+                    // 偏差诊断：搜索预测的掉血/招式 vs 实机状态重新投影。只在详细日志开启时输出，
+                    // 不改变部署行为（停止逻辑仍由 _stopFullAutoOn* 门控，整局训练模式关闭）。
+                    if (deploymentSettings.EnableDetailedDiagnosticLogs)
+                    {
+                        Entry.Logger.Info(
+                            $"[CombatSolver/Debug] HP_PREDICTION turn={turn} " +
+                            $"planned_hp_lost={plannedHpLoss} live_hp_before={liveRisk.HpBefore} " +
+                            $"live_hp_after={liveRisk.HpAfter} live_hp_lost={liveRisk.HpLost} " +
+                            $"predicted_moves={DescribeForecastMoves(result, turn)} " +
+                            $"live_moves={liveRisk.MonsterMoves} player_dead={liveRisk.PlayerDead}");
+                    }
                     bool worsened = liveRisk.HpLost > plannedHpLoss;
                     if ((_stopFullAutoOnDeathTurn && liveRisk.PlayerDead)
                         || (_stopFullAutoOnWorseRecalculation && worsened))
