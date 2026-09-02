@@ -18,8 +18,10 @@ internal static class RelicPickerAI
 {
     public const float SkipThreshold = 4f;
 
-    /// <summary>少数强泛用遗物的手写加成。key 是遗物 Id.Entry。</summary>
-    private static readonly Dictionary<string, float> KnownRelicBonuses = new(StringComparer.Ordinal)
+    /// <summary>少数强泛用遗物的手写加成。key 是遗物 Id.Entry（实测为大写，如 "RUNIC_PYRAMID"）；
+    /// 用 OrdinalIgnoreCase 兼容手写的小写 key（与 CardPickerAI.KnownCardBonuses 同款死代码修复，
+    /// 否则这些加成从不命中）。</summary>
+    private static readonly Dictionary<string, float> KnownRelicBonuses = new(StringComparer.OrdinalIgnoreCase)
     {
         ["bloody_idol"] = 8f,
         ["runic_pyramid"] = 8f,

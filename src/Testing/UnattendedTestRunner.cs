@@ -111,6 +111,11 @@ internal sealed partial class UnattendedTestRunner
                 await RunFullRunAsync();
                 return RunCompletion.Passed;
             }
+            if (_request.PickerChecks.Length > 0)
+            {
+                await RunPickerChecksAsync();
+                return RunCompletion.Passed;
+            }
 
             ScenarioContext scenario = await _scenarioBuilder.BuildAsync();
             combatState = scenario.CombatState;

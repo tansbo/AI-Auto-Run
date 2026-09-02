@@ -19,6 +19,7 @@
 | 主菜单设置页 + 先古遗物智能 | 通过（构建+门禁） | `RunAutoSettingsPage` 在 RitsuLib 模组设置注册 4 开关（主菜单可访问）；`RelicPickerAI` 先古遗物按运行时类名识别诅咒、选最优正向，权重按反编译实际效果校准，并做**路线感知**（地图在 Neow 前已生成，BFS 统计前 5 行精英/小怪/篝火/商店密度微调加成）。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
 | Neow 卡住修复 | 已修复（待实机复测） | `EventDriver` Ancient 对话改 AutoSlay 配方（点不到 hitbox 就重试不退出），选项收集加 `IsEnabled`，先古遗物选择点击前停顿 1.5s 显示推荐。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
 | NMapScreenPatch + FastMode 恢复 | 通过（headless 整局冒烟） | `NMapScreenPatch`（Postfix 钩 `NMapScreen.Open`）统一地图选路触发，`OnMapGenerated` 不再触发；headless 整局 `run-isolated-smoke.ps1` seed `COMBATSOLVER` 跑完 **17 房间至阵亡**，`地图选路超时` **0 次**，`result=Passed`、`SMOKE_OK` + `VERIFY_OK`。恢复 `ApplyRunAutoFullRunSettings` 的 `RunAutoFastMode=true`（批 1+2 误关导致 headless 整局过慢超时）。 | 2026-09-02 |
+| 评分 AI 纯逻辑单测（`PICKER-AI-001`） | 通过（headless） | 新增 `UnattendedPickerCheck` 协议（`-PickerChecksJson`）+ `UnattendedTestRunner.PickerChecks.cs`：开新局不进战斗，逐项断言 `CardPickerAI`/`RelicPickerAI` 选牌/跳过/精确评分。13 项检查覆盖：打击牌跳过阈值、战吼精选表加成胜出、重复牌惩罚（注入 3 张头槌后从选牌变跳过）、战吼精确评分 31、低血量防御倾向（20/80 时防御 -4）、遗物稀有度排序、遗物已知加成（金字塔 21 分，修复死代码后生效）、全 Starter 遗物跳过、先古遗物绝不选诅咒（含描述为 POSITIVE 的 NeowsBones）与全诅咒回退。构建 0 警告 0 错误；门禁 `REFACTOR_BOUNDARIES_OK`。 | 2026-09-02 |
 | 实机冒烟（待做） | 待用户确认 | 用户开启"全自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。评分 AI（`CardPickerAI`/`RelicPickerAI`）纯逻辑单测依赖 headless fixture，未纳入本轮。 | — |
 
 ## 0.22.9

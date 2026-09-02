@@ -178,11 +178,39 @@ internal sealed class UnattendedTestRequest
     public int? ClearPlayerBlockBeforeEndTurnForTest { get; init; }
     /// <summary>整局模式：开新局后让 RunAutoController 驱动到跑局结束（用于种子重放训练），不进入战斗场景。</summary>
     public bool RunAutoFullRun { get; init; }
+    /// <summary>评分 AI 纯逻辑检查：开新局（不进入战斗）后逐项调用 CardPickerAI/RelicPickerAI 并断言。</summary>
+    public UnattendedPickerCheck[] PickerChecks { get; init; } = [];
     /// <summary>A/B 强制抓牌策略（格式 "cardId:take,cardId:skip"，见 RunAutoSettings.TryGetForcedPick）。</summary>
     public string RunAutoForcedPicks { get; init; } = string.Empty;
     /// <summary>整局遥测开关：跑局结束后写 user://run_telemetry/ 结构化 JSON（种子重放 A/B 数据源）。</summary>
     public bool RunAutoTelemetryEnabled { get; init; }
     public bool ExitOnComplete { get; init; } = true;
+}
+
+/// <summary>
+/// 评分 AI 纯逻辑检查：开新局（不进入战斗）后，在给定牌组/生命/幕下调用
+/// CardPickerAI 或 RelicPickerAI，并断言选牌结果或精确评分。
+/// </summary>
+internal sealed class UnattendedPickerCheck
+{
+    /// <summary>检查类型："Card"（卡牌评分/选牌）、"Relic"（遗物评分/选牌）、"AncientRelic"（先古遗物选最优正向）。</summary>
+    public string Kind { get; init; } = "Card";
+    /// <summary>候选卡/遗物 ID（Id.Entry、完整 ID 或运行时类名均可，大小写不敏感）。</summary>
+    public string[] OptionIds { get; init; } = [];
+    /// <summary>仅 Card：评分前把这些卡牌注入跑局牌组（构造重复牌惩罚/牌组画像）。</summary>
+    public string[] DeckCardIds { get; init; } = [];
+    /// <summary>仅 Card：评分前设置玩家当前生命。</summary>
+    public int? PlayerHp { get; init; }
+    /// <summary>仅 Card：评分前设置玩家最大生命。</summary>
+    public int? PlayerMaxHp { get; init; }
+    /// <summary>评分前切换到的幕索引（影响 ActIndex 与先古遗物路线感知）。</summary>
+    public int? ActIndexForTest { get; init; }
+    /// <summary>期望选中的卡/遗物 ID；留空/null 表示期望跳过（返回 null）。AncientRelic 额外断言绝不选诅咒。</summary>
+    public string? ExpectedPickId { get; init; }
+    /// <summary>仅 AncientRelic：期望全部选项都是诅咒时按文档回退到第一个选项（跳过"绝不选诅咒"断言）。</summary>
+    public bool AllowAncientCurseFallback { get; init; }
+    /// <summary>Card/Relic：可选，断言 Evaluate/Score 返回的精确评分（浮点容差 0.001，仅支持单个候选）。</summary>
+    public float? ExpectedScore { get; init; }
 }
 
 internal sealed class UnattendedPotionCheck

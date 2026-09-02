@@ -4,6 +4,7 @@ param(
     [string]$ScenarioId = "SMOKE-001",
     [string]$CharacterId = "IRONCLAD",
     [string]$Seed = "COMBATSOLVER",
+    [string]$PickerChecksJson = "",
     [string]$EncounterId = "FUZZY_WURM_CRAWLER_WEAK",
     [string]$Sts2GameRoot = "D:\Steam\steamapps\common\Slay the Spire 2",
     [string]$RitsuWorkshopRoot = "D:\Steam\steamapps\workshop\content\2868840\3747602295",
@@ -796,6 +797,7 @@ $request = [ordered]@{
     runAutoFullRun = $RunAutoFullRun.IsPresent
     runAutoForcedPicks = $RunAutoForcedPicks
     runAutoTelemetryEnabled = $RunAutoTelemetryEnabled.IsPresent
+    pickerChecks = @()
     exitOnComplete = $ExitOnComplete.IsPresent
 }
 if (-not [string]::IsNullOrWhiteSpace($InitialEnemyCurrentHpsJson)) {
@@ -833,6 +835,9 @@ if (-not [string]::IsNullOrWhiteSpace($RunCardsPath)) {
     $request.runCards = @(Get-Content -LiteralPath $RunCardsPath -Raw | ConvertFrom-Json)
 } elseif (-not [string]::IsNullOrWhiteSpace($RunCardsJson)) {
     $request.runCards = @($RunCardsJson | ConvertFrom-Json)
+}
+if (-not [string]::IsNullOrWhiteSpace($PickerChecksJson)) {
+    $request.pickerChecks = @($PickerChecksJson | ConvertFrom-Json)
 }
 if (-not [string]::IsNullOrWhiteSpace($PotionsPath)) {
     $request.potions = @(Get-Content -LiteralPath $PotionsPath -Raw | ConvertFrom-Json)

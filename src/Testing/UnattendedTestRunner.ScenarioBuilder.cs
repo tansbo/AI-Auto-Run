@@ -41,39 +41,9 @@ internal sealed partial class UnattendedTestRunner
         public async Task<ScenarioContext> BuildAsync()
         {
             UnattendedTestRequest request = runner._request;
-            runner.SetStage("game_startup");
-            await runner._host.GameStartupComplete;
-            runner.ApplyHeadlessFastModeOverride();
-            runner.EnsureWithinDeadline();
-            if (RunManager.Instance.IsInProgress)
-                throw new InvalidOperationException("无人测试要求从无进行中跑局的独立游戏进程启动。");
-
-            // 整局模式：开跑前注入 RunAuto 设置，否则 RunStartedEvent 时 Enabled 为 false 不会建会话。
-            if (request.RunAutoFullRun)
-            {
-                ApplyRunAutoFullRunSettings();
-                StartRunProbe();
-            }
-
-            CharacterModel character = ResolveUnique(ModelDb.AllCharacters, request.CharacterId, "角色");
+            // 遭遇解析必须在游戏启动完成后（ModelDb.Acts/AllEncounters 需要加载后的数据）。
+            (CharacterModel character, RunState runState, Player runPlayer) = await StartRunAsync();
             EncounterModel encounter = ResolveUnique(ModelDb.AllEncounters, request.EncounterId, "遭遇");
-            ModifierModel[] modifiers = request.ModifierIds
-                .Select(id => ResolveUnique(
-                    ModelDb.GoodModifiers.Concat(ModelDb.BadModifiers),
-                    id,
-                    "自定义规则").ToMutable())
-                .ToArray();
-
-            runner.SetStage("start_run");
-            await runner._host.StartNewSingleplayerRun(
-                character,
-                shouldSave: false,
-                ActModel.GetDefaultList(),
-                modifiers,
-                request.Seed,
-                GameMode.Standard,
-                request.Ascension);
-            runner.EnsureWithinDeadline();
 
             // 整局模式：不进战斗，等 RunAuto 驱动到跑局结束（会话在 RunEnded 后被清空）。
             if (request.RunAutoFullRun)
@@ -91,8 +61,6 @@ internal sealed partial class UnattendedTestRunner
             StopRunProbe();
 
             runner.SetStage("inject_run_relics");
-            RunState runState = RunManager.Instance.DebugOnlyGetState()
-                ?? throw new InvalidOperationException("创建跑局后找不到 RunState。");
             if (request.ActIndexForTest != 0)
             {
                 if ((uint)request.ActIndexForTest >= (uint)runState.Acts.Count)
@@ -101,8 +69,6 @@ internal sealed partial class UnattendedTestRunner
             }
             if (request.MarkEncounterAsSecondBossForTest)
                 runState.Act.SetSecondBossEncounter(encounter);
-            Player runPlayer = LocalContext.GetMe(runState)
-                ?? throw new InvalidOperationException("创建跑局后找不到本地玩家。");
             foreach (UnattendedRelicInjection injection in request.Relics)
                 await InjectRelicAsync(runPlayer, injection);
             if (!string.IsNullOrWhiteSpace(request.RunSnapshotPath))
@@ -252,6 +218,53 @@ internal sealed partial class UnattendedTestRunner
                 orbChecks,
                 potionChecks,
                 monsterMoveChecks);
+        }
+
+        /// <summary>
+        /// 启动独立单人跑局（战斗建局与评分 AI 检查共用）：等待游戏就绪、应用 headless 速度覆盖、
+        /// 建不落盘跑局并返回角色/跑局/玩家。整局模式会额外注入 RunAuto 设置并启动探针。
+        /// </summary>
+        public async Task<(CharacterModel Character, RunState RunState, Player Player)> StartRunAsync()
+        {
+            UnattendedTestRequest request = runner._request;
+            runner.SetStage("game_startup");
+            await runner._host.GameStartupComplete;
+            runner.ApplyHeadlessFastModeOverride();
+            runner.EnsureWithinDeadline();
+            if (RunManager.Instance.IsInProgress)
+                throw new InvalidOperationException("无人测试要求从无进行中跑局的独立游戏进程启动。");
+
+            // 整局模式：开跑前注入 RunAuto 设置，否则 RunStartedEvent 时 Enabled 为 false 不会建会话。
+            if (request.RunAutoFullRun)
+            {
+                ApplyRunAutoFullRunSettings();
+                StartRunProbe();
+            }
+
+            CharacterModel character = ResolveUnique(ModelDb.AllCharacters, request.CharacterId, "角色");
+            ModifierModel[] modifiers = request.ModifierIds
+                .Select(id => ResolveUnique(
+                    ModelDb.GoodModifiers.Concat(ModelDb.BadModifiers),
+                    id,
+                    "自定义规则").ToMutable())
+                .ToArray();
+
+            runner.SetStage("start_run");
+            await runner._host.StartNewSingleplayerRun(
+                character,
+                shouldSave: false,
+                ActModel.GetDefaultList(),
+                modifiers,
+                request.Seed,
+                GameMode.Standard,
+                request.Ascension);
+            runner.EnsureWithinDeadline();
+
+            RunState runState = RunManager.Instance.DebugOnlyGetState()
+                ?? throw new InvalidOperationException("创建跑局后找不到 RunState。");
+            Player player = LocalContext.GetMe(runState)
+                ?? throw new InvalidOperationException("创建跑局后找不到本地玩家。");
+            return (character, runState, player);
         }
 
         /// <summary>注入整局模式设置：全自动跑局开启 + 快速动画 + 调试日志。战斗求解器全自动由 RunAuto 的 OnCombatStarting 自动开启。</summary>
