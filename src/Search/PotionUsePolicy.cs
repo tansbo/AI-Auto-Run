@@ -15,7 +15,17 @@ internal static class PotionUsePolicy
         => Math.Max(0, strategicHpCost - SolverWeights.PotionMinimumHpSaved);
 
     public static int StrategicHpCost(PotionModel potion)
-        => potion.Rarity == PotionRarity.Token ? 0 : SolverWeights.PotionMinimumHpSaved;
+        => potion.Rarity == PotionRarity.Token || IsPermanentUpside(potion)
+            ? 0
+            : SolverWeights.PotionMinimumHpSaved;
+
+    /// <summary>
+    /// 永久增益类药水：效果不随战斗时机变化、只赚不亏（如 FruitJuice 永久 +最大生命并回血等量）。
+    /// 这类药水应在能喝的时候就建议喝掉——攒到阵亡就是浪费；对战斗的即时省血贡献可能 < 普通门槛，
+    /// 因此战略成本记为 0，让 Smart 政策始终接受包含它的路线。
+    /// </summary>
+    public static bool IsPermanentUpside(PotionModel potion)
+        => potion is FruitJuice;
 
     public static bool RequiresOpeningUse(PotionModel potion)
         => potion is DexterityPotion
