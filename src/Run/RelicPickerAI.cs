@@ -112,9 +112,51 @@ internal static class RelicPickerAI
     /// <summary>是否为 Neow 诅咒遗物（以运行时类名为准，比 Id.Entry 更稳）。</summary>
     public static bool IsAncientCurse(RelicModel relic) => KnownCurseRelicTypeNames.Contains(relic.GetType().Name);
 
-    /// <summary>先古遗物评分：诅咒类不再是"永不选"，而是按实际效果建模**净价值**（用户规则：
-    /// 很多先古遗物带代价但有强正面效果——如 Neow 第三排 CursedPearl +333 金带 1 诅咒、HeftyTablet
-    /// 稀有 3 选 1 带瘀伤、NeowsBones 2 遗物、SilverCrucible 3 次强化等）。未知诅咒仍不选（-1000）。</summary>
+    /// <summary>
+    /// 全先古遗物池加成（类名 → 0-12；2026-09-02 逐件反编译评估，Neow/Darv/Orobas/Tezcatara/
+    /// Nonupeipe/Pael/Tanx/Vakuu）。ScoreAncientChoice 的基础 13 之上叠加。数值初值待实机校准。
+    /// </summary>
+    private static readonly Dictionary<string, float> AncientPoolBonuses = new(StringComparer.Ordinal)
+    {
+        // Neow（与 KnownAncientChoiceBonuses 同源，这里只放池内独有的补充）
+        // Darv
+        [nameof(DustyTome)] = 6f, [nameof(Astrolabe)] = 5f, [nameof(BlackStar)] = 6f,
+        [nameof(CallingBell)] = 7f, [nameof(EmptyCage)] = 4f, [nameof(PandorasBox)] = 7f,
+        [nameof(RunicPyramid)] = 8f, [nameof(SneckoEye)] = 7f, [nameof(Ectoplasm)] = 5f,
+        [nameof(Sozu)] = 6f,
+        // Orobas
+        [nameof(ElectricShrymp)] = 3f, [nameof(GlassEye)] = 6f, [nameof(AlchemicalCoffer)] = 6f,
+        [nameof(Driftwood)] = 3f, [nameof(RadiantPearl)] = 7f, [nameof(SandCastle)] = 5f,
+        [nameof(SeaGlass)] = 4f, [nameof(PrismaticGem)] = 6f, [nameof(TouchOfOrobas)] = 6f,
+        [nameof(ArchaicTooth)] = 5f,
+        // Tezcatara
+        [nameof(NutritiousSoup)] = 5f, [nameof(VeryHotCocoa)] = 6f, [nameof(YummyCookie)] = 5f,
+        [nameof(BiiigHug)] = 6f, [nameof(Storybook)] = 6f, [nameof(ToastyMittens)] = 6f,
+        [nameof(GoldenCompass)] = 5f, [nameof(PumpkinCandle)] = 5f, [nameof(ToyBox)] = 4f,
+        [nameof(SealOfGold)] = 4f,
+        // Nonupeipe
+        [nameof(BlessedAntler)] = 9f, [nameof(BrilliantScarf)] = 5f, [nameof(DelicateFrond)] = 7f,
+        [nameof(DiamondDiadem)] = 6f, [nameof(FurCoat)] = 7f, [nameof(Glitter)] = 7f,
+        [nameof(JewelryBox)] = 8f, [nameof(LoomingFruit)] = 7f, [nameof(SignetRing)] = 11f,
+        [nameof(BeautifulBracelet)] = 5f,
+        // Pael
+        [nameof(PaelsClaw)] = 5f, [nameof(PaelsTooth)] = 7f, [nameof(PaelsGrowth)] = 8f,
+        [nameof(PaelsLegion)] = 5f, [nameof(PaelsFlesh)] = 5f, [nameof(PaelsHorn)] = 5f,
+        [nameof(PaelsTears)] = 4f, [nameof(PaelsWing)] = 5f, [nameof(PaelsEye)] = 5f,
+        [nameof(PaelsBlood)] = 7f,
+        // Tanx
+        [nameof(Claws)] = 6f, [nameof(Crossbow)] = 6f, [nameof(IronClub)] = 4f,
+        [nameof(MeatCleaver)] = 6f, [nameof(Sai)] = 5f, [nameof(SpikedGauntlets)] = 6f,
+        [nameof(TanxsWhistle)] = 7f, [nameof(ThrowingAxe)] = 6f, [nameof(WarHammer)] = 6f,
+        [nameof(TriBoomerang)] = 8f,
+        // Vakuu
+        [nameof(BloodSoakedRose)] = 6f, [nameof(WhisperingEarring)] = 4f, [nameof(Fiddle)] = 4f,
+        [nameof(PreservedFog)] = 4f, [nameof(SereTalon)] = 3f, [nameof(DistinguishedCape)] = 7f,
+        [nameof(ChoicesParadox)] = 6f, [nameof(MusicBox)] = 5f, [nameof(LordsParasol)] = 8f,
+        [nameof(JeweledMask)] = 6f,
+    };
+
+    /// <summary>先古遗物评分：诅咒类按净价值（见下）；其余 = 13 + Neow/池内加成 + 路线 + 上下文修正。</summary>
     public static float ScoreAncientChoice(RelicModel relic, RunState? runState)
     {
         if (IsAncientCurse(relic))
@@ -122,9 +164,46 @@ internal static class RelicPickerAI
         float score = 13f;
         if (KnownAncientChoiceBonuses.TryGetValue(relic.GetType().Name, out float known))
             score += known;
+        else if (AncientPoolBonuses.TryGetValue(relic.GetType().Name, out float pool))
+            score += pool;
         if (runState != null)
+        {
             score += RouteAdjust(relic, runState.Map);
+            score += AncientContextAdjust(relic, runState);
+        }
         return score;
+    }
+
+    /// <summary>先古遗物按当前局上下文的微调（金币/能量/药水冲突、能力牌依赖等；初值待校准）。</summary>
+    private static float AncientContextAdjust(RelicModel relic, RunState runState)
+    {
+        Player? player = LocalContext.GetMe(runState);
+        if (player == null)
+            return 0f;
+        int gold = player.Gold;
+        int powers = 0;
+        if (player.Deck != null)
+        {
+            foreach (CardModel card in player.Deck.Cards)
+            {
+                if (card.Type == CardType.Power)
+                    powers++;
+            }
+        }
+        float goldScale = RunActContext.GoldValueScale(runState);
+        return relic.GetType().Name switch
+        {
+            // Ectoplasm：金币全清零，与商店/金币路线冲突——商店可达时更亏。
+            nameof(Ectoplasm) => goldScale >= 0.8f ? -6f * goldScale : -2f,
+            // SealOfGold：每战斗回合烧 3 金——穷时更亏。
+            nameof(SealOfGold) => gold < 60 ? -3f : 0f,
+            // JeweledMask：首回合免费抓 Power，没有能力牌则几乎零收益。
+            nameof(JeweledMask) => powers == 0 ? -6f : 0f,
+            // SpikedGauntlets：能力牌费用 +1，能力牌越多越亏。
+            nameof(SpikedGauntlets) => powers >= 3 ? -2f : 0f,
+            // PrismaticGem：跨职业池，纯色卡组污染更重（按能力/曲线简略）。
+            _ => 0f,
+        };
     }
 
     /// <summary>选最优先古遗物（含代价类）：全部按净价值比较取最大，不再排除诅咒列表。</summary>
