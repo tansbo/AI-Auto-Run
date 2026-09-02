@@ -17,15 +17,54 @@ namespace CombatSolver.Run;
 internal static class MapRouter
 {
     private static bool _routingActive;
+    private static bool _retryScheduled;
+    private static long _routingStartedTick;
 
     private static TaskCompletionSource? _roomEnteredTcs;
 
     public static void RequestRoute()
     {
         RunAutoSession? session = RunAutoController.Session;
-        if (session == null || !RunAutoSettings.Enabled || _routingActive)
+        if (session == null || !RunAutoSettings.Enabled)
             return;
+        if (_routingActive)
+        {
+            // 上一轮路由在跑（或病态卡住）。内部所有等待都有界（≤30s），超过 60s 视为卡死
+            // （如房间进入事件未触发），强制复位让后续请求能继续。
+            if (System.Environment.TickCount64 - _routingStartedTick > 60_000)
+            {
+                Entry.Logger.Warn("[RunAuto] 地图路由超过 60s 未完成（房间进入事件可能未触发），强制复位");
+                _routingActive = false;
+            }
+            else if (!_retryScheduled)
+            {
+                // 挂起一次延迟重试：上一轮结束后（或看门狗复位后）本请求能补跑，
+                // 避免 FakeMerchant 等"事件开图"的路由请求被永久丢弃。
+                _retryScheduled = true;
+                TaskHelper.RunSafely(RetryRouteAsync());
+            }
+            return;
+        }
+        StartRouting();
+    }
+
+    private static async Task RetryRouteAsync()
+    {
+        try
+        {
+            await Task.Delay(3000);
+        }
+        finally
+        {
+            _retryScheduled = false;
+        }
+        RequestRoute();
+    }
+
+    private static void StartRouting()
+    {
         _routingActive = true;
+        _routingStartedTick = System.Environment.TickCount64;
         TaskHelper.RunSafely(HandleAsync());
     }
 
@@ -78,6 +117,7 @@ internal static class MapRouter
         finally
         {
             _routingActive = false;
+            _routingStartedTick = 0;
         }
     }
 

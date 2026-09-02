@@ -6,6 +6,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Events;
+using MegaCrit.Sts2.Core.Nodes.Events.Custom;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
@@ -93,6 +94,13 @@ internal static class EventDriver
                 // Ancient 对话（Neow 开场/DONE 页）：点命区翻页直到出现可点选项。
                 if (await TryClickAncientDialogueAsync(room, token))
                     continue;
+
+                // 自定义事件：FakeMerchant（假商人）没有事件选项，用 NProceedButton 离开（AutoSlay 配方）。
+                if (RunUiHelper.FindFirst<NFakeMerchant>(room) is { } fakeMerchant)
+                {
+                    await DriveFakeMerchantAsync(fakeMerchant, token);
+                    continue;
+                }
 
                 List<NEventOptionButton> options = [];
                 foreach (NEventOptionButton button in RunUiHelper.FindAll<NEventOptionButton>(room))
@@ -209,6 +217,38 @@ internal static class EventDriver
         finally
         {
             _active = false;
+        }
+    }
+
+    /// <summary>
+    /// FakeMerchant（假商人）自定义事件处理：该事件不用事件选项按钮，而是 NProceedButton
+    /// （假遗物商店可直接离开）。移植 AutoSlay EventRoomHandler.HandleFakeMerchantEvent 配方；
+    /// 离开后 HideScreen 打开地图，等地图出现后请求选路（兜底，补丁触发时会被去重）。
+    /// </summary>
+    private static async Task DriveFakeMerchantAsync(NFakeMerchant fakeMerchant, CancellationToken token)
+    {
+        RunAutoController.Session?.LogDecision("自定义事件：FakeMerchant（假商人），点离开");
+        NProceedButton? proceed = null;
+        await RunUiHelper.WaitUntilAsync(
+            () => (proceed = RunUiHelper.FindFirst<NProceedButton>(fakeMerchant)) != null
+                  && proceed.IsEnabled && proceed.Visible,
+            token,
+            TimeSpan.FromSeconds(10),
+            "FakeMerchant 离开按钮不可用");
+        if (proceed != null)
+            await RunUiHelper.ClickAsync(proceed, 200);
+        // HideScreen -> NMapScreen.Open()：等地图出现（或假商人节点被释放），再请求选路。
+        await RunUiHelper.WaitUntilAsync(
+            () => NMapScreen.Instance is { IsOpen: true }
+                  || !GodotObject.IsInstanceValid(fakeMerchant)
+                  || !fakeMerchant.IsInsideTree(),
+            token,
+            TimeSpan.FromSeconds(10),
+            "FakeMerchant 地图未打开");
+        if (NMapScreen.Instance is { IsOpen: true })
+        {
+            RunAutoController.Session?.LogDecision("自定义事件完成，地图已打开，请求选路");
+            MapRouter.RequestRoute();
         }
     }
 
