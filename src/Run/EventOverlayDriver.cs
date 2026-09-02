@@ -2,8 +2,11 @@ using Godot;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
+using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 
 namespace CombatSolver.Run;
@@ -52,6 +55,9 @@ internal static class EventOverlayDriver
                 return true;
             case NChooseACardSelectionScreen chooseScreen:
                 await DriveChooseACardAsync(chooseScreen, token);
+                return true;
+            case NCrystalSphereScreen crystalSphere:
+                await DriveCrystalSphereAsync(crystalSphere, token);
                 return true;
             default:
                 return false;
@@ -357,6 +363,91 @@ internal static class EventOverlayDriver
             await Task.Delay(400, token);
         }
         await WaitUntilClosed(screen, token, "事件捆绑包选牌覆盖层未关闭");
+    }
+
+    /// <summary>
+    /// CrystalSphere（水晶球揭示小游戏）屏驱动（移植 AutoSlay CrystalSphereScreenHandler）：
+    /// 逐格点开隐藏格（%Cells 下的 NCrystalSphereCell，Entity.IsHidden）；揭示次数耗尽后游戏自动开奖励屏
+    /// （顶层换成奖励屏即交还主循环，由 DriveRewardsAsync 接走）；奖励处理完回到本屏点 %ProceedButton 离开进地图。
+    /// 修复：旧实现不认识该屏 → 15s 兜底自关超时 → 事件房永久卡死（NECROBINDER 4634LZP01FBE 实机复现）。
+    /// 点格冒烟级（无信息时点第一格）；后续批次可按奖品价值（金/诅咒/遗物/卡）挑格。
+    /// </summary>
+    private static async Task DriveCrystalSphereAsync(NCrystalSphereScreen screen, CancellationToken token)
+    {
+        await Task.Delay(1000, token); // 等小游戏动画/初始化。
+
+        NProceedButton? proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+        if (proceed != null && proceed.IsEnabled)
+        {
+            await LeaveCrystalSphereAsync(screen, token);
+            return;
+        }
+
+        int clicks = 0;
+        while (clicks < 30)
+        {
+            if (!IsStillTop(screen))
+                return; // 奖励屏已接管/屏幕关闭 → 交还主循环。
+            proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+            if (proceed != null && proceed.IsEnabled)
+                break;
+
+            Control? cells = screen.GetNodeOrNull<Control>("%Cells");
+            if (cells == null)
+            {
+                await Task.Delay(100, token);
+                continue;
+            }
+            List<NCrystalSphereCell> hidden = [];
+            foreach (NCrystalSphereCell cell in RunUiHelper.FindAll<NCrystalSphereCell>(cells))
+            {
+                if (cell.Visible && cell.Entity.IsHidden)
+                    hidden.Add(cell);
+            }
+            if (hidden.Count == 0)
+                break; // 无可点格：等奖励屏或离开。
+            NCrystalSphereCell pick = hidden[0];
+            RunAutoController.Session?.LogDecision($"水晶球：揭开 ({pick.Entity.X},{pick.Entity.Y}) 剩余 {hidden.Count - 1}");
+            pick.EmitSignal(NClickableControl.SignalName.Released, pick);
+            await Task.Delay(500, token);
+            clicks++;
+        }
+
+        // 等离开可用 / 顶层被奖励屏接管 / 屏幕自关。
+        await RunUiHelper.WaitUntilAsync(
+            () =>
+            {
+                if (!IsStillTop(screen))
+                    return true;
+                NProceedButton? p = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+                return p != null && p.IsEnabled;
+            },
+            token,
+            TimeSpan.FromSeconds(15),
+            "水晶球：既无离开按钮也无奖励屏");
+        if (!IsStillTop(screen))
+            return;
+        proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+        if (proceed != null && proceed.IsEnabled)
+        {
+            await LeaveCrystalSphereAsync(screen, token);
+        }
+    }
+
+    /// <summary>点水晶球离开按钮；地图已开而本屏没自动退栈时手动移除（AutoSlay 同款防御）。</summary>
+    private static async Task LeaveCrystalSphereAsync(NCrystalSphereScreen screen, CancellationToken token)
+    {
+        NProceedButton? proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+        if (proceed == null || !proceed.IsEnabled)
+            return;
+        await RunUiHelper.ClickAsync(proceed, 200);
+        await Task.Delay(300, token);
+        if (IsStillTop(screen) && NMapScreen.Instance is { IsOpen: true })
+        {
+            NOverlayStack.Instance?.Remove(screen);
+            await Task.Delay(100, token);
+        }
+        await WaitUntilClosed(screen, token, "水晶球离开未完成");
     }
 
     private static NGridCardHolder? FindFirstHolder(Node screen)
