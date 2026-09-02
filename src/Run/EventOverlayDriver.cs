@@ -30,6 +30,9 @@ internal static class EventOverlayDriver
             case NDeckCardSelectScreen deckScreen:
                 await DriveDeckSelectAsync(deckScreen, token);
                 return true;
+            case NDeckEnchantSelectScreen enchantScreen:
+                await DriveEnchantSelectAsync(enchantScreen, token);
+                return true;
             case NChooseACardSelectionScreen chooseScreen:
                 await DriveChooseACardAsync(chooseScreen, token);
                 return true;
@@ -120,6 +123,50 @@ internal static class EventOverlayDriver
             await RunUiHelper.ClickAsync(confirm, 200);
         }
         await WaitUntilClosed(screen, token, "事件改牌覆盖层未关闭");
+    }
+
+    /// <summary>
+    /// NDeckEnchantSelectScreen（牌组附魔选牌，如 SELF_HELP_BOOK 读下封底选一张攻击牌附魔）：
+    /// 点一张牌，MaxSelect==1 时选满会自动弹单牌附魔预览（%EnchantSinglePreviewContainer），
+    /// 再点预览里的 Confirm 确认。选牌先取第一张（冒烟级，后续批次接入评分）。
+    /// </summary>
+    private static async Task DriveEnchantSelectAsync(NDeckEnchantSelectScreen screen, CancellationToken token)
+    {
+        NGridCardHolder? first = FindFirstHolder(screen);
+        if (first == null)
+        {
+            await RunUiHelper.WaitUntilAsync(
+                () => FindFirstHolder(screen) != null,
+                token,
+                TimeSpan.FromSeconds(10),
+                "附魔选牌网格未出现");
+            first = FindFirstHolder(screen);
+            if (first == null)
+                return;
+        }
+        await Task.Delay(300, token);
+        first.EmitSignal(NCardHolder.SignalName.Pressed, first);
+        await Task.Delay(200, token);
+
+        // 单牌附魔预览：确认按钮在预览容器里。预览未出现时退回等它自关（有界）。
+        Control? previewContainer = screen.GetNodeOrNull<Control>("%EnchantSinglePreviewContainer");
+        await RunUiHelper.WaitUntilAsync(
+            () => !IsStillTop(screen)
+                  || (previewContainer != null && previewContainer.Visible),
+            token,
+            TimeSpan.FromSeconds(10),
+            "附魔预览未出现");
+        if (!IsStillTop(screen))
+            return;
+        if (previewContainer != null && previewContainer.Visible)
+        {
+            NConfirmButton? confirm = previewContainer.GetNodeOrNull<NConfirmButton>("Confirm");
+            if (confirm != null && confirm.IsEnabled)
+            {
+                await RunUiHelper.ClickAsync(confirm, 200);
+            }
+        }
+        await WaitUntilClosed(screen, token, "事件附魔选牌覆盖层未关闭");
     }
 
     /// <summary>NChooseACardSelectionScreen（战斗内选牌，事件药水等）：点一张。</summary>
