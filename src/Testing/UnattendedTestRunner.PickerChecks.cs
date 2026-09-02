@@ -103,11 +103,15 @@ internal sealed partial class UnattendedTestRunner
         {
             if (options.Length != 1)
                 throw new InvalidOperationException("ExpectedScore 断言只支持单个候选卡牌。");
-            float actual = CardPickerAI.Evaluate(options[0], DeckContext.From(player, runState));
+            DeckContext context = DeckContext.From(player, runState);
+            float actual = CardPickerAI.Evaluate(options[0], context);
             if (Math.Abs(actual - expectedScore) > 0.001f)
             {
                 throw new InvalidOperationException(
-                    $"卡牌 {options[0].Id.Entry} 评分期望 {expectedScore}，实际 {actual:0.###}。");
+                    $"卡牌 {options[0].Id.Entry} 评分期望 {expectedScore}，实际 {actual:0.###}。" +
+                    $"牌组画像: deck={context.DeckSize} attacks={context.AttackCount} " +
+                    $"blocks={context.BlockCardCount} aoe={context.AoECount} act={context.ActIndex} " +
+                    $"hp={context.HpRatio:0.##} count={context.CountOf(options[0])}");
             }
             return;
         }

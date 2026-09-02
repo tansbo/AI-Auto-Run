@@ -197,13 +197,13 @@ internal sealed class UnattendedPickerCheck
     public string Kind { get; init; } = "Card";
     /// <summary>候选卡/遗物 ID（Id.Entry、完整 ID 或运行时类名均可，大小写不敏感）。</summary>
     public string[] OptionIds { get; init; } = [];
-    /// <summary>仅 Card：评分前把这些卡牌注入跑局牌组（构造重复牌惩罚/牌组画像）。</summary>
+    /// <summary>仅 Card：评分前把这些卡牌注入跑局牌组（构造重复牌惩罚/牌组画像）。注入是粘性的，后续检查继续保留这些牌。</summary>
     public string[] DeckCardIds { get; init; } = [];
-    /// <summary>仅 Card：评分前设置玩家当前生命。</summary>
+    /// <summary>仅 Card：评分前设置玩家当前生命。设置是粘性的，依赖满血的检查须显式重设。</summary>
     public int? PlayerHp { get; init; }
-    /// <summary>仅 Card：评分前设置玩家最大生命。</summary>
+    /// <summary>仅 Card：评分前设置玩家最大生命。设置是粘性的，依赖满血的检查须显式重设。</summary>
     public int? PlayerMaxHp { get; init; }
-    /// <summary>评分前切换到的幕索引（影响 ActIndex 与先古遗物路线感知）。</summary>
+    /// <summary>评分前切换到的幕索引（影响 ActIndex 与先古遗物路线感知）。注意：切换是粘性的，后续检查继续留在该幕。</summary>
     public int? ActIndexForTest { get; init; }
     /// <summary>期望选中的卡/遗物 ID；留空/null 表示期望跳过（返回 null）。AncientRelic 额外断言绝不选诅咒。</summary>
     public string? ExpectedPickId { get; init; }
