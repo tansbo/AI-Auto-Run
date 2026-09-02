@@ -21,7 +21,8 @@
 | NMapScreenPatch + FastMode 恢复 | 通过（headless 整局冒烟） | `NMapScreenPatch`（Postfix 钩 `NMapScreen.Open`）统一地图选路触发，`OnMapGenerated` 不再触发；headless 整局 `run-isolated-smoke.ps1` seed `COMBATSOLVER` 跑完 **17 房间至阵亡**，`地图选路超时` **0 次**，`result=Passed`、`SMOKE_OK` + `VERIFY_OK`。恢复 `ApplyRunAutoFullRunSettings` 的 `RunAutoFastMode=true`（批 1+2 误关导致 headless 整局过慢超时）。 | 2026-09-02 |
 | 评分 AI 纯逻辑单测（`PICKER-AI-001`） | 通过（headless） | 新增 `UnattendedPickerCheck` 协议（`-PickerChecksJson`）+ `UnattendedTestRunner.PickerChecks.cs` + `tools/run-picker-checks.ps1`（fixture 定义入口）：开新局不进战斗，逐项断言 `CardPickerAI`/`RelicPickerAI` 选牌/跳过/精确评分。18 项检查覆盖：打击牌重复惩罚跳过、战吼精选表加成胜出、重复牌惩罚（注入 3 张头槌后从选牌变跳过）、战吼精确评分 31、低血量防御倾向（20/80 时防御 -4）、AOE 加成（燃烧 31 分；第 2 幕 29 分）、攻击比例加成（注入 12 张防御后头槌 20 分）、Power 加成（壁垒 15 分）、第 2 幕无首幕加成（打击 -9 分）、遗物稀有度排序、遗物已知加成（金字塔 21 分，修复死代码后生效）、全 Starter 遗物跳过、先古遗物绝不选诅咒（含描述为 POSITIVE 的 NeowsBones）与全诅咒回退。构建 0 警告 0 错误；门禁 `REFACTOR_BOUNDARIES_OK`。 | 2026-09-02 |
 | SELF_HELP_BOOK 附魔选牌卡死 | 已修复（实机冒烟发现） | 实机冒烟 NECROBINDER 第 6 层 SELF_HELP_BOOK"读下封底"后卡死（`事件处理超时：事件覆盖层未关闭`）。根因：事件打开 `NDeckEnchantSelectScreen`（附魔选牌屏）不在 `EventOverlayDriver` 覆盖层清单；已新增驱动分支（点牌 → 等单牌附魔预览 → 点预览 Confirm）。headless 隔离重放同种子未复现同一事件（种子未跨环境互现），但全程无卡死直达 Act1 Boss，无回归；待下一次实机复测确认该事件路径。 | 2026-09-02 |
-| 实机冒烟（待做） | 待用户复测 | 用户开启"全自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。首轮已发现并修复 SELF_HELP_BOOK 事件卡死（见上行）；其余路径（Neow/地图/商店/篝火/事件/宝箱/战斗）在可见局中按日志已正常工作。 | — |
+| 宝箱房开箱 NRE 卡死 | 已修复（实机冒烟发现） | 实机冒烟第 7 层宝箱房卡死：`NullReferenceException at TreasureRoom.DoExtraRewardsIfNeeded` 中断 `OpenChest`（箱子按钮已禁用、遗物集合不初始化）→ `宝箱房处理超时：宝箱遗物未出现`。该 NRE 此前仅 headless 复现、补丁限无人测试生效；实机证明可见模式同样崩溃。修复：`TreasureExtraRewardsPatch` 移至 Runtime 并**全模式跳过** `DoExtraRewardsIfNeeded`（契约"正常无操作"，等价且规避崩溃；带宝箱追加奖励遗物的额外奖励在该版本让位）。待下一次实机复测确认开箱→拾取→引导弹窗→Proceed 全流程。 | 2026-09-02 |
+| 实机冒烟（待做） | 待用户复测 | 用户开启"全自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。首轮已发现并修复 SELF_HELP_BOOK 事件卡死与宝箱房开箱 NRE（见上两行）；其余路径（Neow/地图/商店/篝火/事件/宝箱/战斗）在可见局中按日志已正常工作。 | — |
 
 #### 实机冒烟操作清单（Run AI，2026-09-02 补充）
 
