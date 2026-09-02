@@ -61,7 +61,6 @@ public static class Entry
         patcher.RegisterPatch<PowerDynamicVarMaterializationGuardPatch>();
         patcher.RegisterPatch<UnattendedTestIsolationPatch>();
         patcher.RegisterPatch<UnattendedHeadlessFtuePatch>();
-        patcher.RegisterPatch<TreasureExtraRewardsPatch>();
         patcher.RegisterPatch<HeadlessSeenFtuePatch>();
         patcher.RegisterPatch<HeadlessFirstRunOrderPatch>();
         patcher.RegisterPatch<RunStartSeedPatch>();

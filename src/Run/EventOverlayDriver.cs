@@ -33,6 +33,23 @@ internal static class EventOverlayDriver
             case NDeckEnchantSelectScreen enchantScreen:
                 await DriveEnchantSelectAsync(enchantScreen, token);
                 return true;
+            case NDeckTransformSelectScreen transformScreen:
+                await DriveGridPreviewSelectAsync(
+                    transformScreen,
+                    ["%PreviewContainer"],
+                    token,
+                    "事件转化选牌覆盖层未关闭");
+                return true;
+            case NDeckUpgradeSelectScreen upgradeScreen:
+                await DriveGridPreviewSelectAsync(
+                    upgradeScreen,
+                    ["%UpgradeSinglePreviewContainer", "%UpgradeMultiPreviewContainer"],
+                    token,
+                    "事件升级选牌覆盖层未关闭");
+                return true;
+            case NChooseABundleSelectionScreen bundleScreen:
+                await DriveBundleSelectAsync(bundleScreen, token);
+                return true;
             case NChooseACardSelectionScreen chooseScreen:
                 await DriveChooseACardAsync(chooseScreen, token);
                 return true;
@@ -169,20 +186,121 @@ internal static class EventOverlayDriver
         await WaitUntilClosed(screen, token, "事件附魔选牌覆盖层未关闭");
     }
 
-    /// <summary>NChooseACardSelectionScreen（战斗内选牌，事件药水等）：点一张。</summary>
+    /// <summary>
+    /// NChooseACardSelectionScreen（战斗内选牌，事件药水/遗物追加牌等，如 LeadPaperweight 无色 2 选 1）：
+    /// 点一张牌。注意游戏 SelectHolder 有 350ms 误点保护（_openedTicks 检查），屏幕刚打开就点会被忽略，
+    /// 必须先等网格就绪并越过该窗口；点击后未关闭则换下一张重试。
+    /// </summary>
     private static async Task DriveChooseACardAsync(NChooseACardSelectionScreen screen, CancellationToken token)
     {
-        NCardHolder? first = null;
-        foreach (NCardHolder holder in RunUiHelper.FindAll<NCardHolder>(screen))
+        await RunUiHelper.WaitUntilAsync(
+            () => FindFirstHolder(screen) != null || !IsStillTop(screen),
+            token,
+            TimeSpan.FromSeconds(10),
+            "事件选牌网格未出现");
+        // 越过游戏 350ms 误点保护窗口（SelectHolder: Time.GetTicksMsec() - _openedTicks > 350）。
+        await Task.Delay(600, token);
+        List<NGridCardHolder> clicked = [];
+        for (int attempt = 0; attempt < 3 && IsStillTop(screen); attempt++)
         {
-            first = holder;
-            break;
+            NGridCardHolder? next = RunUiHelper.FindAll<NGridCardHolder>(screen)
+                .FirstOrDefault(holder => !clicked.Contains(holder));
+            if (next == null)
+                break;
+            clicked.Add(next);
+            next.EmitSignal(NCardHolder.SignalName.Pressed, next);
+            await Task.Delay(300, token);
         }
-        if (first == null)
-            return;
-        first.EmitSignal(NCardHolder.SignalName.Pressed, first);
-        await Task.Delay(100, token);
         await WaitUntilClosed(screen, token, "事件选牌覆盖层未关闭");
+    }
+
+    /// <summary>
+    /// NDeckTransformSelectScreen（牌组转化选牌，如 MORPHIC_GROVE 大群变形灵选 2 张转化）与
+    /// NDeckUpgradeSelectScreen（牌组升级选牌，如 AromaOfChaos/SapphireSeed/SpiritGrafter/Trial 事件）通用驱动：
+    /// 逐张点选网格卡牌，选满 MaxSelect 时游戏自动弹对应预览容器（%PreviewContainer /
+    /// %UpgradeSinglePreviewContainer / %UpgradeMultiPreviewContainer），点预览内 Confirm 完成；
+    /// 主 Confirm（Min!=Max 时启用）也作兜底。
+    /// </summary>
+    private static async Task DriveGridPreviewSelectAsync(
+        CanvasItem screen,
+        string[] previewContainerNames,
+        CancellationToken token,
+        string timeoutMessage)
+    {
+        await RunUiHelper.WaitUntilAsync(
+            () => FindFirstHolder(screen) != null || !IsStillTop(screen),
+            token,
+            TimeSpan.FromSeconds(10),
+            "选牌网格未出现");
+        await Task.Delay(400, token);
+        List<NGridCardHolder> clicked = [];
+        for (int attempt = 0; attempt < 12 && IsStillTop(screen); attempt++)
+        {
+            bool confirmed = false;
+            foreach (string containerName in previewContainerNames)
+            {
+                Control? preview = screen.GetNodeOrNull<Control>(containerName);
+                if (preview is { Visible: true })
+                {
+                    NConfirmButton? previewConfirm = preview.GetNodeOrNull<NConfirmButton>("Confirm");
+                    if (previewConfirm != null && previewConfirm.IsEnabled)
+                    {
+                        await RunUiHelper.ClickAsync(previewConfirm, 200);
+                        confirmed = true;
+                        break;
+                    }
+                }
+            }
+            if (confirmed || !IsStillTop(screen))
+                break;
+            NConfirmButton? mainConfirm = screen.GetNodeOrNull<NConfirmButton>("Confirm");
+            if (mainConfirm != null && mainConfirm.IsEnabled)
+            {
+                await RunUiHelper.ClickAsync(mainConfirm, 200);
+                break;
+            }
+            NGridCardHolder? next = RunUiHelper.FindAll<NGridCardHolder>(screen)
+                .FirstOrDefault(holder => !clicked.Contains(holder));
+            if (next == null)
+                break;
+            clicked.Add(next);
+            next.EmitSignal(NCardHolder.SignalName.Pressed, next);
+            await Task.Delay(300, token);
+        }
+        await WaitUntilClosed(screen, token, timeoutMessage);
+    }
+
+    /// <summary>
+    /// NChooseABundleSelectionScreen（选一组卡牌捆绑包，如 ScrollBoxes 遗物）：点第一组，
+    /// 预览容器（%BundlePreviewContainer）出现后点 %Confirm 完成。
+    /// </summary>
+    private static async Task DriveBundleSelectAsync(NChooseABundleSelectionScreen screen, CancellationToken token)
+    {
+        await RunUiHelper.WaitUntilAsync(
+            () => RunUiHelper.FindFirst<NCardBundle>(screen) != null || !IsStillTop(screen),
+            token,
+            TimeSpan.FromSeconds(10),
+            "捆绑包选项未出现");
+        await Task.Delay(400, token);
+        for (int attempt = 0; attempt < 5 && IsStillTop(screen); attempt++)
+        {
+            Control? preview = screen.GetNodeOrNull<Control>("%BundlePreviewContainer");
+            if (preview is { Visible: true })
+            {
+                NConfirmButton? confirm = preview.GetNodeOrNull<NConfirmButton>("%Confirm");
+                if (confirm != null && confirm.IsEnabled)
+                {
+                    await RunUiHelper.ClickAsync(confirm, 200);
+                    break;
+                }
+            }
+            NCardBundle? bundle = RunUiHelper.FindFirst<NCardBundle>(screen);
+            if (bundle == null)
+                break;
+            bundle.EmitSignal(NCardBundle.SignalName.Clicked, bundle);
+            await Task.Delay(400, token);
+        }
+        await WaitUntilClosed(screen, token, "事件捆绑包选牌覆盖层未关闭");
     }
 
     private static NGridCardHolder? FindFirstHolder(Node screen)

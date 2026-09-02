@@ -139,6 +139,16 @@ internal static class RelicRewardDriver
                 session.LogDecision("宝箱房：未找到箱子");
                 return;
             }
+
+            // 开箱前等遗物同步器就绪：BeginRelicPicking 是 TreasureRoom.EnterInternal 的最后一步，
+            // 而 RoomEnteredEvent（AfterRoomEntered hook）在其之前触发——驱动此时点箱会让 OpenChest
+            // 跑在遗物生成之前，InitializeRelics 读到 null 的 CurrentRelics → 空宝箱（已实证）。
+            await RunUiHelper.WaitUntilAsync(
+                () => RunManager.Instance?.TreasureRoomRelicSynchronizer?.CurrentRelics != null,
+                token,
+                TimeSpan.FromSeconds(15),
+                "宝箱遗物同步未就绪");
+
             _loggedTreasureHolderState = false;
             session.LogDecision("宝箱房：开箱");
             await RunUiHelper.ClickAsync(chest, 300);
