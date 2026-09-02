@@ -112,32 +112,72 @@ internal static class EventOverlayDriver
         => GodotObject.IsInstanceValid(screen) && screen.IsVisibleInTree()
            && NOverlayStack.Instance?.Peek() == screen;
 
-    /// <summary>NDeckCardSelectScreen（从牌组移除/转换）：点一张，走预览确认按钮。</summary>
+    /// <summary>
+    /// NDeckCardSelectScreen（从牌组移除/转换，事件里可能是多选：如 FIELD_OF_MAN_SIZED_HOLES 抵抗诱惑移除 2 张）。
+    /// 移植 AutoSlay DeckCardSelectScreenHandler 配方：循环点未选过的牌，直到"预览出现或主确认可用"
+    /// （选满 MaxSelect 会自动弹预览）；预览没弹就点主确认弹预览；最后点 %PreviewConfirm 确认。
+    /// 修复：旧实现只点 1 张就找确认，多选屏（选满前确认不可用）会 10s 超时 → 事件房永久卡死。
+    /// </summary>
     private static async Task DriveDeckSelectAsync(NDeckCardSelectScreen screen, CancellationToken token)
     {
-        NGridCardHolder? first = FindFirstHolder(screen);
-        if (first == null)
-            return;
+        List<NGridCardHolder> cards = [];
+        await RunUiHelper.WaitUntilAsync(
+            () => (cards = RunUiHelper.FindAll<NGridCardHolder>(screen)).Count > 0,
+            token,
+            TimeSpan.FromSeconds(10),
+            "改牌选牌网格未出现");
         await Task.Delay(300, token);
-        first.EmitSignal(NCardHolder.SignalName.Pressed, first);
-        await Task.Delay(200, token);
 
-        Control? previewContainer = screen.GetNodeOrNull<Control>("%PreviewContainer");
-        NConfirmButton? confirm = previewContainer?.GetNodeOrNull<NConfirmButton>("%PreviewConfirm");
-        if (confirm == null || !confirm.IsEnabled)
+        int maxSelections = Math.Min(cards.Count, 5);
+        List<NGridCardHolder> selected = [];
+        for (int i = 0; i < maxSelections; i++)
         {
+            if (!IsStillTop(screen))
+                return;
+            Control? preview = screen.GetNodeOrNull<Control>("%PreviewContainer");
             NConfirmButton? mainConfirm = screen.GetNodeOrNull<NConfirmButton>("%Confirm");
-            if (mainConfirm != null && mainConfirm.IsEnabled)
-            {
-                await RunUiHelper.ClickAsync(mainConfirm, 200);
-                await Task.Delay(300, token);
-            }
-            previewContainer = screen.GetNodeOrNull<Control>("%PreviewContainer");
-            confirm = previewContainer?.GetNodeOrNull<NConfirmButton>("%PreviewConfirm");
+            if ((preview?.Visible ?? false) || (mainConfirm != null && mainConfirm.IsEnabled))
+                break; // 已选满（或本来就可确认）。
+            NGridCardHolder? next = cards.FirstOrDefault(c => !selected.Contains(c));
+            if (next == null)
+                break;
+            selected.Add(next);
+            RunAutoController.Session?.LogDecision($"事件改牌：选择第 {selected.Count} 张");
+            next.EmitSignal(NCardHolder.SignalName.Pressed, next);
+            await Task.Delay(250, token);
         }
-        if (confirm != null && confirm.IsEnabled)
+
+        // 预览未自动出现时（选满未触发或单确认流程），点主确认弹预览。
+        Control? previewNow = screen.GetNodeOrNull<Control>("%PreviewContainer");
+        NConfirmButton? mainNow = screen.GetNodeOrNull<NConfirmButton>("%Confirm");
+        if ((previewNow == null || !previewNow.Visible) && mainNow != null && mainNow.IsEnabled)
         {
-            await RunUiHelper.ClickAsync(confirm, 200);
+            await RunUiHelper.ClickAsync(mainNow, 200);
+            await Task.Delay(250, token);
+            previewNow = screen.GetNodeOrNull<Control>("%PreviewContainer");
+        }
+
+        // 等预览出现或屏幕自关。
+        await RunUiHelper.WaitUntilAsync(
+            () => !IsStillTop(screen)
+                  || (previewNow = screen.GetNodeOrNull<Control>("%PreviewContainer")) is { Visible: true },
+            token,
+            TimeSpan.FromSeconds(10),
+            "改牌预览未出现");
+        if (!IsStillTop(screen))
+            return;
+
+        NConfirmButton? confirm = previewNow?.GetNodeOrNull<NConfirmButton>("%PreviewConfirm")
+            ?? RunUiHelper.FindAll<NConfirmButton>(screen).FirstOrDefault(b => b.IsEnabled);
+        if (confirm != null)
+        {
+            await RunUiHelper.WaitUntilAsync(
+                () => !IsStillTop(screen) || confirm.IsEnabled,
+                token,
+                TimeSpan.FromSeconds(5),
+                "改牌确认未变可用");
+            if (IsStillTop(screen))
+                await RunUiHelper.ClickAsync(confirm, 200);
         }
         await WaitUntilClosed(screen, token, "事件改牌覆盖层未关闭");
     }
