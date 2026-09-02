@@ -125,6 +125,10 @@ internal static class CardPickerAI
         if (context.HpRatio < 0.4f && card.GainsBlock)
             score += 5f;
 
+        // 数据驱动（Spire Codex A10 真实对局）：胜率差加成，卡在牌组里会随 DeckContext 一并复算。
+        if (CardWinStats.BonusById.TryGetValue(card.Id.Entry, out float winBonus))
+            score += winBonus;
+
         return score;
     }
 }
