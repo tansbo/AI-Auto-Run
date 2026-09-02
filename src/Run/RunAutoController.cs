@@ -214,10 +214,12 @@ internal static class RunAutoController
         }
     }
 
-    /// <summary>轮询到玩家回合可出牌（Phase=Play）后开启战斗求解器全自动。</summary>
+    /// <summary>轮询到玩家回合可出牌（Phase=Play）或存在待接管的回合开始选牌后开启战斗求解器全自动。
+    /// 首回合带回合开始选牌（如战略类卡）时，原生选牌页先于 Play 出现并等待计划执行——
+    /// 只等 Play 会死锁（选牌不解决 Play 永不出现），有 pending 计划选择时也立即接管。</summary>
     private static async Task EnableFullAutoWhenPlayableAsync(CombatState combatState)
     {
-        for (int attempt = 0; attempt < 1200; attempt++)
+        for (int attempt = 0; attempt < 2400; attempt++)
         {
             await Task.Delay(50);
             if (!Entry.Enabled || SolverController.SolverDisabled)
@@ -229,15 +231,18 @@ internal static class RunAutoController
             {
                 return;
             }
-            if (combatState.CurrentSide != CombatSide.Player
-                || LocalContext.GetMe(combatState)?.PlayerCombatState?.Phase != PlayerTurnPhase.Play)
+            if (combatState.CurrentSide != CombatSide.Player)
+                continue;
+            Player? me = LocalContext.GetMe(combatState);
+            if (me?.PlayerCombatState?.Phase != PlayerTurnPhase.Play
+                && !PlayerTurnSetupCoordinator.HasPendingPlannedChoice(combatState))
             {
                 continue;
             }
             if (NGame.Instance is not { } host)
                 return;
             SolverController.SetFullAuto(host, combatState, enabled: true);
-            Entry.Logger.Info("[RunAuto] 战斗求解器已接管全自动（玩家回合可出牌后开启）");
+            Entry.Logger.Info("[RunAuto] 战斗求解器已接管全自动（玩家回合可出牌/回合开始选牌就绪后开启）");
             return;
         }
     }

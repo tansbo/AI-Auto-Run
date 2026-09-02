@@ -58,11 +58,21 @@ try {
         $req | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reqPath -Encoding UTF8
         Start-Process 'steam://rungameid/2868840'
 
-        # 轮询等结果（runId 匹配）或进程退出；每 30s 一次。
-        $deadline = (Get-Date).AddMinutes([Math]::Ceiling(($PerRunTimeoutSeconds + 600) / 60.0))
+        # 轮询等结果：结果文件（runId 匹配）是主完成条件；进程出现过后再退出才是次完成条件。
+        # 强制杀游戏后 Steam 可能有重启冷却，游戏可能延迟出现——先等进程出现（最多 90s），
+        # 轮询期间进程一直没出现则记 spawn 失败。
+        $gameSeen = $false
+        $spawnDeadline = (Get-Date).AddSeconds(90)
+        while ((Get-Date) -lt $spawnDeadline) {
+            if (Get-Process -Name SlayTheSpire2 -ErrorAction SilentlyContinue) { $gameSeen = $true; break }
+            Start-Sleep -Seconds 5
+        }
         $entry = $null
+        $deadline = (Get-Date).AddMinutes([Math]::Ceiling(($PerRunTimeoutSeconds + 600) / 60.0))
         while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 30
+            $game = Get-Process -Name SlayTheSpire2 -ErrorAction SilentlyContinue
+            if ($game) { $gameSeen = $true }
             if (Test-Path -LiteralPath $resPath) {
                 $res = Get-Content -LiteralPath $resPath -Raw | ConvertFrom-Json
                 if ($res.runId -eq $runId) {
@@ -74,10 +84,13 @@ try {
                     break
                 }
             }
-            if (-not (Get-Process -Name SlayTheSpire2 -ErrorAction SilentlyContinue)) { break }
+            if ($gameSeen -and -not $game) { break }
         }
         if (-not $entry) {
-            $entry = [ordered]@{ key = $key; runId = $runId; status = "NO-RESULT"; elapsedMs = 0; error = "进程退出但无结果（可能被杀/超时）" }
+            $entry = [ordered]@{
+                key = $key; runId = $runId; status = "NO-RESULT"; elapsedMs = 0
+                error = if (-not $gameSeen) { "游戏进程未出现（Steam 冷却？）" } else { "游戏退出但无结果" }
+            }
         }
         # 遥测结果
         $telemetry = Get-ChildItem (Join-Path $visUser "run_telemetry") -Filter "*$($r.Seed)*" -ErrorAction SilentlyContinue |
@@ -91,9 +104,13 @@ try {
         }
         $entry | ConvertTo-Json -Compress | Add-Content -LiteralPath $progressFile -Encoding UTF8
         Write-Host "结果: $($entry | ConvertTo-Json -Compress)"
-        # 游戏若未退出则关掉，准备下一局
+        # 游戏若已自己退出（exitOnComplete）则等它收尾；残留才强制杀。Steam 重启冷却期间间隔几秒再启动下一局。
+        for ($i = 0; $i -lt 12; $i++) {
+            if (-not (Get-Process -Name SlayTheSpire2 -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep -Seconds 5
+        }
         Stop-Process -Name SlayTheSpire2 -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 20
         @('combat_solver_test_request.json','combat_solver_test_running.json','combat_solver_test_result.json','combat_solver_test_ready.json') | ForEach-Object {
             $p = Join-Path $visUser $_; if (Test-Path $p) { Remove-Item $p -Force }
         }
