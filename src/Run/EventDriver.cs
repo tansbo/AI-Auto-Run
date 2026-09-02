@@ -295,43 +295,30 @@ internal static class EventDriver
             }
         }
 
-        // 其余事件：按价值排序。确定奖励（可 SL）优先，其次目录里建模过的随机期望；
-        // 都不满足才退回"第一个可行动项"（原行为，不冒险重排未建模选项）。
-        float bestActual = float.MinValue;
-        NEventOptionButton? actualChoice = null;
-        string actualBasis = "";
-        float bestModeled = float.MinValue;
-        NEventOptionButton? modeledChoice = null;
-        string modeledBasis = "";
+        // 其余事件：按价值排序。凡是被建模的选项（确定性实际价值或事件期望，含负值——如
+        // SLIPPERY_BRIDGE 移除代价是负分）都参与比较取最大；全部未建模才退回"第一个可行动项"。
+        float bestScore = float.MinValue;
+        NEventOptionButton? bestChoice = null;
+        string bestBasis = "";
         foreach (NEventOptionButton button in options)
         {
             if (button.Option.IsProceed)
                 continue;
-            EventOptionValuer.OptionScore score = EventOptionValuer.Score(button.Option, player, runState);
-            if (score.Deterministic && score.Value > 0f && score.Value > bestActual)
+            EventOptionValuer.OptionScore score =
+                EventOptionValuer.Score(button.Option, button.Event, player, runState);
+            if (score.Basis.StartsWith("未建模", StringComparison.Ordinal))
+                continue; // 没建模的不参与（不冒险重排）。
+            if (score.Value > bestScore)
             {
-                bestActual = score.Value;
-                actualChoice = button;
-                actualBasis = score.Basis;
-            }
-            else if (!score.Deterministic
-                     && score.Value > 0f
-                     && score.Value > bestModeled)
-            {
-                bestModeled = score.Value;
-                modeledChoice = button;
-                modeledBasis = score.Basis;
+                bestScore = score.Value;
+                bestChoice = button;
+                bestBasis = score.Basis;
             }
         }
-        if (actualChoice != null)
+        if (bestChoice != null)
         {
-            basis = actualBasis;
-            return actualChoice;
-        }
-        if (modeledChoice != null)
-        {
-            basis = modeledBasis;
-            return modeledChoice;
+            basis = bestBasis;
+            return bestChoice;
         }
 
         var actionable = new List<NEventOptionButton>();
