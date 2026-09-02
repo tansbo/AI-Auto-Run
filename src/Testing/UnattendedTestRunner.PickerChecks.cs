@@ -164,7 +164,10 @@ internal sealed partial class UnattendedTestRunner
         }
         else
         {
-            if (RelicPickerAI.IsAncientCurse(chosen))
+            // 2026-09-02 政策变更：代价类先古遗物（诅咒列表）按净价值评估，不再一刀切拒绝——
+            // 期望项本身是诅咒遗物时允许选中（如 CursedPearl +333 金 − 1 诅咒 净正）。
+            if (RelicPickerAI.IsAncientCurse(chosen)
+                && !(check.ExpectedPickId?.Equals(chosen.Id.Entry, StringComparison.OrdinalIgnoreCase) ?? false))
             {
                 throw new InvalidOperationException(
                     $"先古遗物选择了诅咒遗物 {chosen.Id.Entry}（选项 {string.Join("/", check.OptionIds)}）。");
