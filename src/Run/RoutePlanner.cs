@@ -10,6 +10,7 @@ namespace CombatSolver.Run;
 /// 对从候选节点到幕末 Boss 的地图 DAG 做记忆化回溯：每个节点 = 自身价值/风险 + 最优后继 × 折扣。
 ///   - 战斗节点按类型计"收益 - 风险成本"；风险成本随当前血量放大（低血更危险），
 ///     随持有的药水（保险）衰减；
+///   - 战士（燃烧之血战后回 6）的战斗风险成本会先扣掉战后回血 —— 适当卖血省药可接受（用户规则）；
 ///   - 低血时篝火（回血）与宝箱/商店（安全收益）相对变值，精英被惩罚；
 ///   - 满血健康时精英的高收益占优 —— 路线选择自然随生命/药水状态调整。
 /// 数值均为启发式（待跑局数据校准）；决策会连同评分写进跑局日志供聚合分析。
@@ -37,15 +38,20 @@ internal static class RoutePlanner
             ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
             : 0.7f;
         int potionCount = player == null ? 0 : Math.Min(player.Potions.Count(), 4);
+        // 战士每场战斗胜利回 6 血：战斗净风险先扣掉战后回血。
+        float postCombatRegen = (float)RunActContext.PassivePostCombatHeal(player);
 
         var memo = new Dictionary<MapPoint, float>();
         int evaluated = 0;
 
-        float RiskCost(float baseRisk)
+        float RiskCost(float baseRisk, bool isFight)
         {
             float hpMult = Math.Clamp(1f + (HpNeutral - hpFraction) * 2f, 0.55f, 2.2f);
             float insuranceDiv = 1f + PotionInsurancePer * potionCount;
-            return baseRisk * hpMult / insuranceDiv;
+            float cost = baseRisk * hpMult / insuranceDiv;
+            if (isFight)
+                cost -= postCombatRegen;
+            return Math.Max(0.2f, cost);
         }
 
         IEnumerable<MapPoint> candidates = currentPoint != null
@@ -71,7 +77,7 @@ internal static class RoutePlanner
     private static float ScorePath(
         MapPoint node,
         ActMap map,
-        Func<float, float> riskCost,
+        Func<float, bool, float> riskCost,
         float hpFraction,
         Dictionary<MapPoint, float> memo,
         ref int evaluated,
@@ -93,8 +99,8 @@ internal static class RoutePlanner
 
         float value = type switch
         {
-            MapPointType.Monster => 1.0f - riskCost(3.0f),
-            MapPointType.Elite => 3.2f - riskCost(6.5f),
+            MapPointType.Monster => 1.0f - riskCost(3.0f, true),
+            MapPointType.Elite => 3.2f - riskCost(6.5f, true),
             MapPointType.RestSite => hpFraction < 0.45f ? 3.4f : 1.6f,
             MapPointType.Treasure => 7.0f,
             MapPointType.Shop => 3.8f,

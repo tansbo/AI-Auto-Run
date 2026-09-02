@@ -1,16 +1,20 @@
 using MegaCrit.Sts2.Core.Entities.Ascension;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Models.Characters;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace CombatSolver.Run;
 
 /// <summary>
 /// 跑局"当前节点之后的路线"上下文：距幕末 Boss 的行数、前方可到达的战斗/精英数量。
-/// 由 RunAuto 各决策点（奖励领药水、篝火选择、未来地图选路）从 <see cref="RunState.Map"/> 实时估算，
+/// 由 RunAuto 各决策点（奖励领药水、篝火选择、地图选路）从 <see cref="RunState.Map"/> 实时估算，
 /// 用于路线危险度与药水保留成本（用户规则 2026-09-02）：
 ///   - 难度 A2+（WearyTraveler）时，每幕 Ancient（Boss 后）只补缺失生命的 80%，
 ///     所以幕末"顶满血/喝回血药"只值 20% 的跨幕留存 —— 幕末应省药、低血出 Boss，靠 Ancient 补回大头；
-///   - 前方精英/战斗越多 → 药水保留价值越高（留着救命），越不值得为普通奖励浪费。
+///   - 前方精英/战斗越多 → 药水保留价值越高（留着救命），越不值得为普通奖励浪费；
+///   - 战士（IRONCLAD）每场战斗胜利后由燃烧之血回 6 血 → 适当卖血省药可接受
+///     （选路风险容忍更高、篝火回血不那么急）。
 /// </summary>
 internal static class RunActContext
 {
@@ -27,6 +31,16 @@ internal static class RunActContext
             return 1.0m;
         }
     }
+
+    /// <summary>
+    /// 角色被动"每场战斗胜利后回血"（decomp 核对：战士起始遗物燃烧之血 BurningBlood，
+    /// AfterCombatVictory 且未死时 Heal 6）。其余角色 0。
+    /// </summary>
+    public static decimal PassivePostCombatHeal(Player? player)
+        => player?.Character is Ironclad ? 6m : 0m;
+
+    public static bool IsIronclad(Player? player)
+        => player?.Character is Ironclad;
 
     public readonly record struct RouteAhead(
         int RowsLeftToBoss,

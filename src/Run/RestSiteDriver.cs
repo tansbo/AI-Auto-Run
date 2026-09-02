@@ -185,9 +185,15 @@ internal static class RestSiteDriver
             : 1f;
 
         RunActContext.RouteAhead ahead = RunActContext.CaptureAhead(runState);
-        if (hpFraction < 0.35f)
+        // 战士每场战斗胜利回 6 血：回血需求本来就低，阈值整体放宽（适当卖血可接受，用户规则）。
+        decimal regen = RunActContext.PassivePostCombatHeal(player);
+        bool isIronclad = RunActContext.IsIronclad(player);
+        const float ironcladRebate = 0.05f;
+
+        float emergencyFloor = isIronclad ? 0.30f : 0.35f;
+        if (hpFraction < emergencyFloor)
         {
-            reason = $"极低血 {hpFraction:P0}";
+            reason = $"极低血 {hpFraction:P0}{(isIronclad ? "（战士有战后回血仍留 30% 保险）" : "")}";
             return true;
         }
 
@@ -205,8 +211,10 @@ internal static class RestSiteDriver
         {
             // Boss 前最后一两个节点：评估失败风险。
             bool hasInsurance = player.Potions.Any();
-            float threshold = 0.55f;
+            float threshold = 0.55f - (isIronclad ? ironcladRebate : 0f);
             string signals = $"距Boss {ahead.RowsLeftToBoss} 步";
+            if (regen > 0)
+                signals += "、战后回血";
             if (!hasInsurance)
             {
                 threshold += 0.10f;
@@ -221,7 +229,8 @@ internal static class RestSiteDriver
             return hpFraction < threshold;
         }
 
-        reason = $"幕中血量 {hpFraction:P0}";
-        return hpFraction < 0.6f;
+        float midThreshold = 0.6f - (isIronclad ? ironcladRebate : 0f);
+        reason = $"幕中血量 {hpFraction:P0}（阈值 {midThreshold:P0}）";
+        return hpFraction < midThreshold;
     }
 }
