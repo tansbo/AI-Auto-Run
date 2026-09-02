@@ -138,6 +138,11 @@ internal static class EventDriver
                 var before = new HashSet<NEventOptionButton>(options);
                 session.LogDecision(
                     $"事件：{choice.Event?.Id.Entry ?? "unknown"} → {choice.Option.Title.GetFormattedText()}（{basis}）");
+                if (choice.Option.Relic != null)
+                {
+                    // 遗物获得语料：事件/先古发遗物的选项。
+                    RunAutoController.Session?.Telemetry.RecordRelicObtained(choice.Option.Relic.Id.Entry);
+                }
                 // 先古遗物等关键选择：停顿一下让底部覆盖层显示推荐，用户能看清再点。
                 if (choice.Option.Relic != null)
                     await Task.Delay(1500, token);

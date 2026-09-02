@@ -189,6 +189,7 @@ internal static class RelicRewardDriver
                 if (relicModel == null)
                     continue;
                 session.LogDecision($"宝箱遗物：{relicModel.Id.Entry}");
+                RunAutoController.Session?.Telemetry.RecordRelicObtained(relicModel.Id.Entry);
                 await RunUiHelper.ClickAsync(holder, 300);
             }
 

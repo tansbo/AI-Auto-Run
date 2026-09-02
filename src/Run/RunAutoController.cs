@@ -293,5 +293,10 @@ internal static class RunAutoController
             if (session.PickedCardIds.Count > before)
                 session.LogDecision($"获得卡牌 {session.PickedCardIds[^1]}");
         }
+        else if (evt.Reward is MegaCrit.Sts2.Core.Rewards.RelicReward relicReward
+                 && relicReward.Relic != null)
+        {
+            session.Telemetry.RecordRelicObtained(relicReward.Relic.Id.Entry);
+        }
     }
 }

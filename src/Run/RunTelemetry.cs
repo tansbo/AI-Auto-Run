@@ -36,6 +36,11 @@ internal sealed class RunTelemetryData
 
     public List<TelemetryRelicPick> RelicPicks { get; } = [];
 
+    /// <summary>本局最终获得的遗物（奖励/宝箱/事件/先古），供"遗物×胜负"语料校准。</summary>
+    public List<string> RelicIds { get; } = [];
+
+    public void RecordRelicObtained(string relicId) => RelicIds.Add(relicId);
+
     public void RecordPick(
         RunState? runState,
         RoomType roomType,
