@@ -73,7 +73,7 @@ internal static class RestSiteDriver
             session.LogDecision($"篝火：{choice.Option.GetType().Name}（{reason}）");
             await RunUiHelper.ClickAsync(choice, 200);
 
-            // 等选项生效：要么覆盖层打开（升级选牌），要么 Proceed 变可用。
+            // 等选项生效：要么覆盖层打开（升级选牌/回血附赠奖励屏等），要么 Proceed 变可用。
             await RunUiHelper.WaitUntilAsync(
                 () =>
                 {
@@ -86,10 +86,27 @@ internal static class RestSiteDriver
                 TimeSpan.FromSeconds(10),
                 "篝火选项未生效");
 
-            if (NOverlayStack.Instance?.Peek() is NDeckUpgradeSelectScreen upgrade)
+            // 选项可能打开任意覆盖层：升级选牌（Smith）、回血附赠奖励屏（NRewardsScreen，来自遗物/修
+            // 改 RestSiteHealRewards）、其余事件式覆盖层。逐层排空直到覆盖层清空（修复：旧实现只处理升级
+            // 选牌，回血奖励屏会挡住 Proceed → 10s 超时 → 驱动退出 → 篝火房永久卡死，实机复现）。
+            for (int guard = 0; guard < 10 && NOverlayStack.Instance is { ScreenCount: > 0 }; guard++)
             {
-                session.LogDecision("篝火升级：自动选牌升级");
-                await SmithUpgradeDriver.HandleAsync(upgrade, token);
+                if (!GodotObject.IsInstanceValid(room) || !room.IsInsideTree())
+                    return;
+                if (NOverlayStack.Instance?.Peek() is NDeckUpgradeSelectScreen upgrade)
+                {
+                    session.LogDecision("篝火升级：自动选牌升级");
+                    await SmithUpgradeDriver.HandleAsync(upgrade, token);
+                    continue;
+                }
+                if (await EventOverlayDriver.DriveAsync(token))
+                    continue;
+                // 不认识的覆盖层：等它自关（有界）。
+                await RunUiHelper.WaitUntilAsync(
+                    () => NOverlayStack.Instance is { ScreenCount: 0 },
+                    token,
+                    TimeSpan.FromSeconds(15),
+                    "篝火覆盖层未关闭");
             }
 
             NProceedButton proceedButton = room.ProceedButton;
