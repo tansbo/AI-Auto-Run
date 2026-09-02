@@ -47,8 +47,10 @@ internal static class RunActContext
     /// 金币价值系数（用户规则 2026-09-02）：
     /// 1) 金币只有在"能安全较快到达商店"时才值钱——本幕没有可达商店/商店位置差 → 系数低（约 0.5）；
     ///    商店近而多 → 系数高（最高 ~1.4）。
-    /// 2) 部分事件要求金币处于特定范围才出现（IsAllowed 门槛，地图上事件显示为 Unknown 节点）：
-    ///    前方还有 Unknown 节点且当前金币低于常见门槛带（150）时，边际金币更值钱（别花到掉出门槛）。
+    /// 2) 事件金币门槛（decomp 实测）：多数事件要求金币 ≥100 才出现（CrystalSphere/FakeMerchant/
+    ///    MorphicGrove/Ranwid 金选项/WelcomeToWongos），另有 120(EndlessConveyor)/125(ZenWeaver)/
+    ///    100–149(LuminousChoir) 等高门槛。金币价值在门槛下方更高（别花到掉出门槛）、
+    ///    高于 150 后边际价值回落。地图上事件显示为 Unknown 节点。
     /// 应用到所有"金币↔分数"换算（事件金币/代价、CursedPearl、SilkenTress 等）。
     /// </summary>
     public static float GoldValueScale(RunState? runState)
@@ -84,7 +86,7 @@ internal static class RunActContext
             }
             else if (point.PointType == MapPointType.Unknown)
             {
-                unknownAhead++; // 事件/未知节点（部分事件有金币门槛）。
+                unknownAhead++; // 事件/未知节点（多数事件有 ≥100 金币门槛）。
             }
             if (steps < depthLimit)
             {
@@ -98,15 +100,22 @@ internal static class RunActContext
         else
             scale = 0.8f + 0.15f * Math.Min(shops, 6) - 0.08f * Math.Max(0, nearestShopSteps - 1);
 
-        // 前方还有可能带金币门槛的事件（Unknown 节点）且金币在门槛带内 → 边际金币更值钱。
+        // 前方还有可能带金币门槛的事件（Unknown 节点）→ 按实测门槛分段给边际加成：
+        //   <100：多数事件（CrystalSphere/FakeMerchant/MorphicGrove/Ranwid/Wongo）门槛，加成最大；
+        //   100–150：120/125/100–149 高门槛带，加成中等；≥150 全部解锁，不加成。
         if (unknownAhead > 0)
         {
             int gold = LocalContext.GetMe(runState)?.Gold ?? 0;
             int rowsLeft = Math.Max(0, FindBossRow(map, current.row) - current.row);
-            if (rowsLeft >= 3 && gold < 150)
-                scale += 0.15f;
+            if (rowsLeft >= 3)
+            {
+                if (gold < 100)
+                    scale += 0.25f;
+                else if (gold < 150)
+                    scale += 0.12f;
+            }
         }
-        return Math.Clamp(scale, 0.5f, 1.5f);
+        return Math.Clamp(scale, 0.5f, 1.55f);
     }
 
     public readonly record struct RouteAhead(
