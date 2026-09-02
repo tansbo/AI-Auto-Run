@@ -16,6 +16,7 @@
 | 批次 B：核心循环 | 通过（构建+门禁） | `CardRewardDriver`+`NCardRewardScreenPatch`、`CardPickerAI`、`MapRouter`、`RestSiteDriver`。构建/门禁通过；DLL 已复制到游戏 mods 目录。 | 2026-08-31 |
 | 批次 C：全覆盖 | 通过（构建+门禁） | `ShopDriver`（含卡牌移除覆盖层排空）、`EventDriver`（避开致死选项/事件战斗/Ancient 翻页）、`RelicRewardDriver`+`NChooseARelicScreenPatch`（遗物选择/宝箱房）、`RelicPickerAI`。构建/门禁通过；DLL 已复制。 | 2026-08-31 |
 | 批次 D：打磨 | 通过（构建+门禁） | `RunAutoOverlay` 状态展示、`OnCombatEnded` TODO 清理、`docs/ARCHITECTURE.md`/`TEST_MATRIX.md` 更新。构建 0 警告 0 错误；门禁通过；DLL 已复制。 | 2026-08-31 |
+| 果汁类永久药水建议使用（`POTION-JUICE-ALWAYS-USE`） | 通过（headless） | Smart 药水政策修复：FruitJuice（永久 +5 最大生命并回血）战略成本 0 → 路线始终包含。fixture：毛绒伏地虫 40HP + 注入 FRUIT_JUICE，断言首轮路线终局最大生命 `85`（喝了果汁；修复前攒住果汁终局 80 会失败）。 | 2026-09-02 |
 | 主菜单设置页 + 先古遗物智能 | 通过（构建+门禁） | `RunAutoSettingsPage` 在 RitsuLib 模组设置注册 4 开关（主菜单可访问）；`RelicPickerAI` 先古遗物按运行时类名识别诅咒、选最优正向，权重按反编译实际效果校准，并做**路线感知**（地图在 Neow 前已生成，BFS 统计前 5 行精英/小怪/篝火/商店密度微调加成）。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
 | Neow 卡住修复 | 已修复（待实机复测） | `EventDriver` Ancient 对话改 AutoSlay 配方（点不到 hitbox 就重试不退出），选项收集加 `IsEnabled`，先古遗物选择点击前停顿 1.5s 显示推荐。构建 0 警告 0 错误；门禁通过；DLL 待游戏退出后自动部署。 | 2026-08-31 |
 | NMapScreenPatch + FastMode 恢复 | 通过（headless 整局冒烟） | `NMapScreenPatch`（Postfix 钩 `NMapScreen.Open`）统一地图选路触发，`OnMapGenerated` 不再触发；headless 整局 `run-isolated-smoke.ps1` seed `COMBATSOLVER` 跑完 **17 房间至阵亡**，`地图选路超时` **0 次**，`result=Passed`、`SMOKE_OK` + `VERIFY_OK`。恢复 `ApplyRunAutoFullRunSettings` 的 `RunAutoFastMode=true`（批 1+2 误关导致 headless 整局过慢超时）。 | 2026-09-02 |
