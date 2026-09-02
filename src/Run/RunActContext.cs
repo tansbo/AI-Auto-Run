@@ -1,0 +1,118 @@
+using MegaCrit.Sts2.Core.Entities.Ascension;
+using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Runs;
+
+namespace CombatSolver.Run;
+
+/// <summary>
+/// 跑局"当前节点之后的路线"上下文：距幕末 Boss 的行数、前方可到达的战斗/精英数量。
+/// 由 RunAuto 各决策点（奖励领药水、篝火选择、未来地图选路）从 <see cref="RunState.Map"/> 实时估算，
+/// 用于路线危险度与药水保留成本（用户规则 2026-09-02）：
+///   - 难度 A2+（WearyTraveler）时，每幕 Ancient（Boss 后）只补缺失生命的 80%，
+///     所以幕末"顶满血/喝回血药"只值 20% 的跨幕留存 —— 幕末应省药、低血出 Boss，靠 Ancient 补回大头；
+///   - 前方精英/战斗越多 → 药水保留价值越高（留着救命），越不值得为普通奖励浪费。
+/// </summary>
+internal static class RunActContext
+{
+    /// <summary>Ancient（Boss 后）对缺失生命的补偿比例：A2+ 为 0.8，其余难度满补。</summary>
+    public static decimal ActBoundaryHealFraction()
+    {
+        try
+        {
+            return RunManager.Instance.HasAscension(AscensionLevel.WearyTraveler) ? 0.8m : 1.0m;
+        }
+        catch
+        {
+            // 非跑局中（如无人测试建局间隙）没有 AscensionManager，按最低难度处理。
+            return 1.0m;
+        }
+    }
+
+    public readonly record struct RouteAhead(
+        int RowsLeftToBoss,
+        int ElitesAhead,
+        int FightsAhead)
+    {
+        /// <summary>距离幕末 Boss 很近（含已站在 Boss 行）：跨幕回血补偿会让幕末回血药/顶血贬值。</summary>
+        public bool NearActEnd => RowsLeftToBoss <= 2;
+
+        /// <summary>路线危险度 0..100：前方战斗越多越危险（精英权重更高）。</summary>
+        public int RouteDanger => Math.Min(100, ElitesAhead * 14 + (FightsAhead - ElitesAhead) * 5);
+    }
+
+    /// <summary>估算当前节点之后的地图构成。找不到地图/节点时返回"看不到前方"的空上下文。</summary>
+    public static RouteAhead CaptureAhead(RunState? runState)
+    {
+        if (runState == null || runState.VisitedMapCoords.Count == 0)
+            return new RouteAhead(int.MaxValue / 4, 0, 0);
+
+        MapCoord current = runState.VisitedMapCoords[runState.VisitedMapCoords.Count - 1];
+        if (runState.Map is null or NullActMap)
+            return new RouteAhead(int.MaxValue / 4, 0, 0);
+
+        ActMap map = runState.Map;
+        MapPoint? currentNode = FindPoint(map, current);
+        int bossRow = FindBossRow(map, current.row);
+        int rowsLeft = Math.Max(0, bossRow - current.row);
+        if (currentNode == null)
+            return new RouteAhead(rowsLeft, 0, 0);
+
+        // 从前节点 Children 起有界 BFS（最多 8 层 / 300 节点），统计可到达的战斗。
+        int elites = 0, fights = 0;
+        var seen = new HashSet<MapPoint>();
+        var queue = new Queue<(MapPoint Point, int Depth)>();
+        foreach (MapPoint child in currentNode.Children)
+            queue.Enqueue((child, 1));
+        const int depthLimit = 8;
+        while (queue.Count > 0 && seen.Count < 300)
+        {
+            (MapPoint point, int depth) = queue.Dequeue();
+            if (!seen.Add(point))
+                continue;
+            switch (point.PointType)
+            {
+                case MapPointType.Elite:
+                    elites++;
+                    fights++;
+                    break;
+                case MapPointType.Monster:
+                    fights++;
+                    break;
+            }
+            if (depth < depthLimit)
+            {
+                foreach (MapPoint child in point.Children)
+                    queue.Enqueue((child, depth + 1));
+            }
+        }
+        return new RouteAhead(rowsLeft, elites, fights);
+    }
+
+    private static MapPoint? FindPoint(ActMap map, MapCoord coord)
+    {
+        int top = Math.Min(map.GetRowCount() - 1, coord.row + 1);
+        for (int row = Math.Max(0, coord.row - 1); row <= top; row++)
+        {
+            foreach (MapPoint point in map.GetPointsInRow(row))
+            {
+                if (point.coord.Equals(coord))
+                    return point;
+            }
+        }
+        return null;
+    }
+
+    private static int FindBossRow(ActMap map, int currentRow)
+    {
+        int rowCount = map.GetRowCount();
+        for (int row = currentRow + 1; row < rowCount; row++)
+        {
+            foreach (MapPoint point in map.GetPointsInRow(row))
+            {
+                if (point.PointType is MapPointType.Boss or MapPointType.Ancient)
+                    return row;
+            }
+        }
+        return rowCount;
+    }
+}

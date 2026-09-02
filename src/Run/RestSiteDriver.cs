@@ -1,5 +1,6 @@
 using Godot;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Ascension;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.RestSite;
 using MegaCrit.Sts2.Core.Helpers;
@@ -9,6 +10,7 @@ using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace CombatSolver.Run;
 
@@ -61,14 +63,14 @@ internal static class RestSiteDriver
                 return;
             }
 
-            NRestSiteButton? choice = ChooseOption(buttons);
+            NRestSiteButton? choice = ChooseOption(buttons, out string reason);
             if (choice == null)
             {
                 session.LogDecision("篝火没有合适的选项");
                 return;
             }
 
-            session.LogDecision($"篝火：{choice.Option.GetType().Name}");
+            session.LogDecision($"篝火：{choice.Option.GetType().Name}（{reason}）");
             await RunUiHelper.ClickAsync(choice, 200);
 
             // 等选项生效：要么覆盖层打开（升级选牌），要么 Proceed 变可用。
@@ -126,21 +128,27 @@ internal static class RestSiteDriver
         }
     }
 
-    /// <summary>低血量先回血；否则升级；再否则力量成长/挖矿/烹饪；兜底选第一个可用项。</summary>
-    private static NRestSiteButton? ChooseOption(List<NRestSiteButton> buttons)
+    /// <summary>
+    /// 决策：普通位置低血量回血；**幕末 Boss 前**则按"失败风险"判断 —— Boss 战损很大，
+    /// 预估失败风险高时不敲牌改回血（用户规则 2026-09-02）；反之风险可控时继续敲牌，
+    /// 低血出 Boss，靠 Boss 后 Ancient 补回缺失生命（A2+ 补 80%）。
+    /// </summary>
+    private static NRestSiteButton? ChooseOption(List<NRestSiteButton> buttons, out string reason)
     {
-        Player? player = LocalContext.GetMe(RunAutoController.Session?.RunState);
-        bool lowHp = player != null
+        reason = "";
+        RunState? runState = RunAutoController.Session?.RunState;
+        Player? player = runState == null ? null : LocalContext.GetMe(runState);
+        bool healWanted = player != null
             && player.Creature.MaxHp > 0
-            && (float)player.Creature.CurrentHp / player.Creature.MaxHp < 0.6f;
+            && ShouldHeal(player, runState!, out reason);
 
         foreach (NRestSiteButton button in buttons)
         {
             if (button.Option is HealRestSiteOption)
             {
-                if (lowHp)
+                if (healWanted)
                     return button;
-                continue; // 满血不回血，继续看升级/其他选项。
+                continue; // 不回血，继续看升级/其他选项。
             }
         }
         foreach (NRestSiteButton button in buttons)
@@ -158,6 +166,62 @@ internal static class RestSiteDriver
             if (button.Option is MendRestSiteOption or CloneRestSiteOption or HatchRestSiteOption)
                 return button;
         }
+        reason = "无匹配选项，兜底";
         return buttons[0];
+    }
+
+    /// <summary>
+    /// 估算"该不该回血"（启发式，阈值待跑局数据校准）：
+    ///   - 极低血（&lt;35%）任何时候都回；
+    ///   - Boss 在 1-2 步内：Boss 战损大，失败风险高就不敲牌改回血。
+    ///     风险信号：血量低、没有药水兜底、A10 双 Boss —— 阈值相应抬高；
+    ///   - 其余位置维持既有 &lt;60% 回血规则。
+    /// </summary>
+    private static bool ShouldHeal(Player player, RunState runState, out string reason)
+    {
+        reason = "";
+        float hpFraction = player.Creature.MaxHp > 0
+            ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
+            : 1f;
+
+        RunActContext.RouteAhead ahead = RunActContext.CaptureAhead(runState);
+        if (hpFraction < 0.35f)
+        {
+            reason = $"极低血 {hpFraction:P0}";
+            return true;
+        }
+
+        bool doubleBoss = false;
+        try
+        {
+            doubleBoss = RunManager.Instance.HasAscension(AscensionLevel.DoubleBoss);
+        }
+        catch
+        {
+            // 非跑局间隙没有 AscensionManager。
+        }
+
+        if (ahead.RowsLeftToBoss <= 2)
+        {
+            // Boss 前最后一两个节点：评估失败风险。
+            bool hasInsurance = player.Potions.Any();
+            float threshold = 0.55f;
+            string signals = $"距Boss {ahead.RowsLeftToBoss} 步";
+            if (!hasInsurance)
+            {
+                threshold += 0.10f;
+                signals += "、无药水兜底";
+            }
+            if (doubleBoss)
+            {
+                threshold += 0.05f;
+                signals += "、双Boss";
+            }
+            reason = $"Boss前 {signals}：血 {hpFraction:P0} {(hpFraction < threshold ? "<" : "≥")} 阈值 {threshold:P0}";
+            return hpFraction < threshold;
+        }
+
+        reason = $"幕中血量 {hpFraction:P0}";
+        return hpFraction < 0.6f;
     }
 }
