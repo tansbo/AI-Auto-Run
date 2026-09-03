@@ -16,7 +16,7 @@ param(
 )
 
 # 必须保留的 mod（本 mod 与 headless RitsuLib 加载器）。
-$script:KeepMods = @("CombatSolver", ".combatsolver-headless-ritsulib")
+$script:KeepMods = @("CombatSolver", ".combatsolver-headless-ritsulib", ".combatsolver-headless-ritsulib-w1", ".combatsolver-headless-ritsulib-w2", ".combatsolver-headless-ritsulib-w3")
 
 # 遗留的坏命名后缀（早期改名隔离的产物）；备份时剥掉，恢复回原名。
 $script:DisabledSuffix = ".disabled-for-smoke"
@@ -129,3 +129,4 @@ function Restore-ThirdPartyMods {
     }
     return $failed
 }
+
