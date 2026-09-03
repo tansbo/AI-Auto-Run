@@ -8,6 +8,7 @@ param(
     [string]$EncounterId = "FUZZY_WURM_CRAWLER_WEAK",
     [string]$Sts2GameRoot = "D:\Steam\steamapps\common\Slay the Spire 2",
     [string]$RitsuWorkshopRoot = "D:\Steam\steamapps\workshop\content\2868840\3747602295",
+    [string]$WorkerId = "",
     [string]$RunSnapshotPath = "",
     [string]$ProgressSnapshotPath = "",
     [ValidateRange(0, 10)]
@@ -263,6 +264,19 @@ $headlessDependencyDir = Join-Path $gameModsRoot ".combatsolver-headless-ritsuli
 $headlessDependencyMarker = Join-Path $headlessDependencyDir ".combatsolver-headless-only"
 $interactiveDataDir = Join-Path ([Environment]::GetFolderPath("ApplicationData")) "SlayTheSpire2"
 $headlessRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "CombatSolver\headless-runtime"
+# 并行 worker 支持：WorkerId 非空 → 独立数据根与独立 RitsuLib 投影（点前缀目录不被 mod 扫描），
+# 每个 worker 独占锁/日志/进程标记，互不干扰。默认空值保持原路径完全不变。
+$workerSuffix = ""
+if (-not [string]::IsNullOrWhiteSpace($WorkerId)) {
+    $clean = -join ($WorkerId.ToCharArray() | Where-Object { [char]::IsLetterOrDigit($_) })
+    if ($clean.Length -eq 0) {
+        throw "WorkerId 需包含至少一个字母或数字。"
+    }
+    $workerSuffix = "-$clean"
+    $headlessDependencyDir = Join-Path $gameModsRoot (".combatsolver-headless-ritsulib" + $workerSuffix)
+    $headlessRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) ("CombatSolver\headless-runtime" + $workerSuffix)
+}
+$headlessDependencyMarker = Join-Path $headlessDependencyDir ".combatsolver-headless-only"
 $headlessRoaming = Join-Path $headlessRoot "Roaming"
 $headlessLocal = Join-Path $headlessRoot "Local"
 $dataDir = Join-Path $headlessRoaming "SlayTheSpire2"
@@ -1035,10 +1049,23 @@ if (Test-Path -LiteralPath $processMarkerPath -PathType Leaf) {
         }
     }
 }
-$otherProcesses = @(Get-Process -Name "SlayTheSpire2" -ErrorAction SilentlyContinue |
-    Where-Object { $null -eq $process -or $_.Id -ne $process.Id })
+$otherProcesses = @()
+try {
+    $allGame = Get-CimInstance Win32_Process -Filter "Name='SlayTheSpire2.exe'" -ErrorAction Stop
+    foreach ($candidate in $allGame) {
+        if ($null -ne $process -and [uint32]$candidate.ProcessId -eq $process.Id) { continue }
+        $commandLine = [string]$candidate.CommandLine
+        # 并行 worker：别的 worker 的 headless 实例命令行带 --log-file ...headless-runtime...，放行；
+        # 只有真实交互实例（无该参数）才算"interactive"。
+        if ($commandLine.Contains("headless-runtime")) { continue }
+        $otherProcesses += $candidate.ProcessId
+    }
+} catch {
+    $otherProcesses = @(Get-Process -Name "SlayTheSpire2" -ErrorAction SilentlyContinue |
+        Where-Object { $null -eq $process -or $_.Id -ne $process.Id } | ForEach-Object { $_.Id })
+}
 if ($otherProcesses.Count -gt 0) {
-    $ids = $otherProcesses.Id -join ","
+    $ids = $otherProcesses -join ","
     throw "Refusing to start or reuse headless tests while an interactive SlayTheSpire2 process is running. pid=$ids"
 }
 $reusedProcess = $null -ne $process
