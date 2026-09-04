@@ -128,6 +128,7 @@ internal static class EventOverlayDriver
     /// </summary>
     private static async Task PickBestFreePicksAsync(NSimpleCardSelectScreen screen, NCardGrid grid, CancellationToken token)
     {
+        RunAutoSettings.DemoShot("freepick");
         List<NGridCardHolder> holders = RunUiHelper.FindAll<NGridCardHolder>(screen)
             .Where(static h => h.CardModel != null)
             .ToList();
