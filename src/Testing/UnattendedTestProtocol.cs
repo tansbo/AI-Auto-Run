@@ -189,6 +189,8 @@ internal sealed class UnattendedTestRequest
     public string? RunAutoTelemetryUrl { get; init; }
     /// <summary>演示定格毫秒（0=关）：关键决策前停顿，便于录制展示 AI 选牌/选路/事件/遗物。</summary>
     public int RunAutoDemoHoldMs { get; init; }
+    /// <summary>演示截图（默认关）：决策瞬间进程内截图，不改速度。</summary>
+    public bool RunAutoDemoCapture { get; init; }
     public bool ExitOnComplete { get; init; } = true;
 }
 
@@ -487,3 +489,4 @@ internal static class UnattendedTestFiles
 
     public static string GlobalPath(string uri) => ProjectSettings.GlobalizePath(uri);
 }
+

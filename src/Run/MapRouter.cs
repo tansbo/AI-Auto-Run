@@ -93,6 +93,7 @@ internal static class MapRouter
             RunManager.Instance.RoomEntered += OnRoomEntered;
             try
             {
+                RunAutoSettings.DemoShot("map");
                 await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：地图+决策条留屏
                 await RunUiHelper.ClickAsync(target, 150);
                 await RunUiHelper.WaitForTaskAsync(
@@ -262,3 +263,4 @@ internal static class MapRouter
         }
     }
 }
+

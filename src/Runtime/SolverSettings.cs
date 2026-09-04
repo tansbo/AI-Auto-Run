@@ -98,6 +98,8 @@ internal sealed record SolverSettingsData
     public string? RunAutoTelemetryUrl { get; init; }
     // 演示定格（默认 0=关）：关键决策前停顿毫秒，便于录制/观察 AI 选牌/选路/事件/遗物过程。
     public int RunAutoDemoHoldMs { get; init; }
+    // 演示截图（默认关）：决策瞬间进程内截图到 user://demo_frames，不改变游戏速度。
+    public bool RunAutoDemoCapture { get; init; }
 }
 
 internal sealed record SolverSettingsSnapshot(
@@ -535,3 +537,4 @@ internal static class SolverSettings
             || data.ShortMaxHandChoiceBranchesPerAction.HasValue
             || data.DeepMaxHandChoiceBranchesPerAction.HasValue;
 }
+

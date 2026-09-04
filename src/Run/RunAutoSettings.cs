@@ -1,3 +1,5 @@
+using Godot;
+
 namespace CombatSolver.Run;
 
 /// <summary>
@@ -86,6 +88,32 @@ internal static class RunAutoSettings
 
     /// <summary>演示定格毫秒（0=关）：关键跑局决策前把界面/决策条留屏，便于录制展示。</summary>
     public static int DemoHoldMs => SolverSettings.Current.RunAutoDemoHoldMs;
+
+    /// <summary>演示截图开关（默认关）：决策瞬间进程内截图到 user://demo_frames，不改游戏速度。</summary>
+    public static bool DemoCaptureEnabled => SolverSettings.Current.RunAutoDemoCapture;
+
+    /// <summary>进程内截图保存到 user://demo_frames（演示用，主线程调用；失败仅记日志）。</summary>
+    public static void DemoShot(string tag)
+    {
+        if (!DemoCaptureEnabled)
+            return;
+        try
+        {
+            var root = ((SceneTree)Godot.Engine.GetMainLoop()).Root;
+            Godot.Image image = root.GetTexture().GetImage();
+            string directory = ProjectSettings.GlobalizePath("user://demo_frames");
+            Directory.CreateDirectory(directory);
+            string clean = new string(tag.Where(static c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray());
+            if (clean.Length > 40)
+                clean = clean[^40..];
+            string path = Path.Combine(directory, $"{DateTime.Now:HHmmssfff}-{clean}.png");
+            image.SavePng(path);
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[RunAuto] 演示截图失败：{ex.Message}");
+        }
+    }
 
     public static async Task HoldForDemoAsync(CancellationToken token)
     {

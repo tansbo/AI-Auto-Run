@@ -123,6 +123,7 @@ internal static class RewardsScreenDriver
         CancellationToken token)
     {
         session.LogDecision($"领取药水奖励 {button.Reward?.GetType().Name}");
+        RunAutoSettings.DemoShot("potion");
         await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：奖励屏留屏
         await RunUiHelper.ClickAsync(button, 200);
         // 药水领取不打开子覆盖层：成功 = 按钮被消耗移除（或整屏关闭/跑局结束），
@@ -200,6 +201,7 @@ internal static class RewardsScreenDriver
 
                 attemptedButtons.Add(button);
                 session.LogDecision($"领取奖励 {button.Reward?.GetType().Name ?? "unknown"}");
+                RunAutoSettings.DemoShot("reward");
                 await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：奖励/选牌入口留屏
                 await RunUiHelper.ClickAsync(button, 200);
 
@@ -247,3 +249,6 @@ internal static class RewardsScreenDriver
         }
     }
 }
+
+
+
