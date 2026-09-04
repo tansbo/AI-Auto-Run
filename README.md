@@ -3,6 +3,8 @@
 面向《杀戮尖塔 2》的 **AI 全自动跑局** Mod：不止帮你算一场战斗，而是从开局一路帮你打到通关/失败——选路、事件、药水、金币、篝火、遗物、抓牌都由 AI 自动决策并执行；战斗内部沿用异步求解引擎算出最优打法。
 
 > 本仓库继承自 [Combat Solver](https://github.com/Torch1230/CombatSolver)（战斗路线求解器，作者 Torch），在其上构建本项目；技术标识（命名空间/mod id/目录）沿用 `CombatSolver`，产品与对外名称见本页。来源、许可与致谢见文末。
+>
+> English README: [README.en.md](README.en.md)
 
 ---
 
