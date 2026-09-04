@@ -191,6 +191,11 @@ internal sealed class UnattendedTestRequest
     public int RunAutoDemoHoldMs { get; init; }
     /// <summary>演示截图（默认关）：决策瞬间进程内截图，不改速度。</summary>
     public bool RunAutoDemoCapture { get; init; }
+    /// <summary>渠道演示脚手架：开局 Neow 强制选该先古遗物（Id.Entry/类名，如 KALEIDOSCOPE）。</summary>
+    public string? RunAutoForceNeowRelicId { get; init; }
+    /// <summary>渠道演示脚手架：指定幕（0 起）的首个事件房入口强制获得该遗物（如 SEA_GLASS）。</summary>
+    public string? RunAutoForceActRelicId { get; init; }
+    public int RunAutoForceActRelicAct { get; init; } = -1;
     public bool ExitOnComplete { get; init; } = true;
 }
 

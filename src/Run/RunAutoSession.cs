@@ -51,6 +51,9 @@ internal sealed class RunAutoSession
     /// <summary>本局结构化遥测（种子/抓牌/遗物/结局），由 RunAutoTelemetryEnabled 时在 RunEnded 落盘。</summary>
     public RunTelemetryData Telemetry { get; } = new();
 
+    /// <summary>渠道演示脚手架：已完成强制遗物获得的幕索引（每幕一次，防重复获得）。</summary>
+    public HashSet<int> ForceRelicActsDone { get; } = [];
+
     /// <summary>跑局级取消令牌：跑局结束（RunEndedEvent）时取消，各驱动用它提前退出。</summary>
     public CancellationToken CancellationToken { get; } = new CancellationTokenSource().Token;
 

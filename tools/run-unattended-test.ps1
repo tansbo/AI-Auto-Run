@@ -210,7 +210,10 @@ param(
     [string]$RunAutoForcedPicks = "",
     [switch]$RunAutoTelemetryEnabled,
 [string]$RunAutoTelemetryUrl = "",
-[switch]$RunAutoTelemetryUpload
+[switch]$RunAutoTelemetryUpload,
+[string]$RunAutoForceNeowRelicId = "",
+[string]$RunAutoForceActRelicId = "",
+[int]$RunAutoForceActRelicAct = -1
 )
 
 $ErrorActionPreference = "Stop"
@@ -815,6 +818,9 @@ $request = [ordered]@{
     runAutoTelemetryEnabled = $RunAutoTelemetryEnabled.IsPresent
             runAutoTelemetryUpload = $RunAutoTelemetryUpload.IsPresent
             runAutoTelemetryUrl = $RunAutoTelemetryUrl
+    runAutoForceNeowRelicId = if ([string]::IsNullOrWhiteSpace($RunAutoForceNeowRelicId)) { $null } else { $RunAutoForceNeowRelicId }
+    runAutoForceActRelicId = if ([string]::IsNullOrWhiteSpace($RunAutoForceActRelicId)) { $null } else { $RunAutoForceActRelicId }
+    runAutoForceActRelicAct = $RunAutoForceActRelicAct
     pickerChecks = @()
     exitOnComplete = $ExitOnComplete.IsPresent
 }

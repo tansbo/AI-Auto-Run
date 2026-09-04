@@ -92,6 +92,15 @@ internal static class RunAutoSettings
     /// <summary>演示截图开关（默认关）：决策瞬间进程内截图到 user://demo_frames，不改游戏速度。</summary>
     public static bool DemoCaptureEnabled => SolverSettings.Current.RunAutoDemoCapture;
 
+    /// <summary>渠道演示脚手架：开局 Neow 强制选该先古遗物（如 KALEIDOSCOPE；空=不强制）。</summary>
+    public static string ForceNeowRelicId => SolverSettings.Current.RunAutoForceNeowRelicId ?? string.Empty;
+
+    /// <summary>渠道演示脚手架：指定幕（0 起）首个事件房入口强制获得的遗物（如 SEA_GLASS；空=不强制）。</summary>
+    public static string ForceActRelicId => SolverSettings.Current.RunAutoForceActRelicId ?? string.Empty;
+
+    /// <summary>渠道演示脚手架：强制获得的幕索引（默认 -1=不强制）。</summary>
+    public static int ForceActRelicAct => SolverSettings.Current.RunAutoForceActRelicAct;
+
     /// <summary>进程内截图保存到 user://demo_frames（演示用，主线程调用；失败仅记日志）。</summary>
     public static void DemoShot(string tag)
     {

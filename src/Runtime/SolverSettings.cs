@@ -100,6 +100,12 @@ internal sealed record SolverSettingsData
     public int RunAutoDemoHoldMs { get; init; }
     // 演示截图（默认关）：决策瞬间进程内截图到 user://demo_frames，不改变游戏速度。
     public bool RunAutoDemoCapture { get; init; }
+    // 渠道演示脚手架（测试用）：开局 Neow 强制选该先古遗物（Id.Entry/类名，如 KALEIDOSCOPE）。
+    public string? RunAutoForceNeowRelicId { get; init; }
+    // 渠道演示脚手架（测试用）：指定幕（0 起）的首个事件房入口强制获得该遗物（如 SEA_GLASS），
+    // 走真实事件房上下文，AfterObtained 弹出的覆盖层由事件驱动排空。
+    public string? RunAutoForceActRelicId { get; init; }
+    public int RunAutoForceActRelicAct { get; init; } = -1;
 }
 
 internal sealed record SolverSettingsSnapshot(

@@ -1,8 +1,11 @@
 using Godot;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Models.Characters;
+using MegaCrit.Sts2.Core.Models.Relics;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Events;
@@ -53,6 +56,26 @@ internal static class EventDriver
                 "事件房间未出现");
             if (room == null)
                 return;
+
+            // 渠道演示脚手架（每幕一次）：指定幕的首个事件房入口先强制获得目标遗物（如海玻璃）。
+            // 注意海玻璃 AfterObtained 用 BlockingPlayerChoiceContext 等玩家从网格选牌——若在此
+            // await 会与驱动循环互锁（同商店移除避死锁配方）：改为 fire-and-forget，由主循环
+            // 驱动其弹出的覆盖层（NSimpleCardSelectScreen 网格已支持择优），选择完成后任务收尾入组。
+            RunState? rs = session.RunState;
+            if (rs != null
+                && RunAutoSettings.ForceActRelicAct >= 0
+                && rs.CurrentActIndex == RunAutoSettings.ForceActRelicAct
+                && !string.IsNullOrWhiteSpace(RunAutoSettings.ForceActRelicId)
+                && session.ForceRelicActsDone.Add(rs.CurrentActIndex))
+            {
+                Player? forcePlayer = LocalContext.GetMe(rs);
+                RelicModel? forced = BuildForceRelic(rs, RunAutoSettings.ForceActRelicId);
+                if (forcePlayer != null && forced != null)
+                {
+                    session.LogDecision($"脚手架：事件房入口强制获得 {forced.Id.Entry}");
+                    _ = TaskHelper.RunSafely(ForceObtainFireAndForgetAsync(forced, forcePlayer, token));
+                }
+            }
 
             for (int iteration = 0; iteration < MaxIterations; iteration++)
             {
@@ -256,6 +279,49 @@ internal static class EventDriver
         }
     }
 
+    /// <summary>渠道演示脚手架：按 Id 构建强制遗物（海玻璃预置一个非当前职业的 CharacterId 才有跨职业意义）。</summary>
+    private static RelicModel? BuildForceRelic(RunState runState, string relicId)
+    {
+        Player? me = LocalContext.GetMe(runState);
+        string receivingName = me?.Character?.GetType().Name ?? string.Empty;
+        return relicId.ToUpperInvariant() switch
+        {
+            "KALEIDOSCOPE" => ModelDb.Relic<Kaleidoscope>().ToMutable(),
+            "SEA_GLASS" => BuildSeaGlass(receivingName),
+            "PRISMATIC_GEM" => ModelDb.Relic<PrismaticGem>().ToMutable(),
+            _ => null,
+        };
+    }
+
+    private static RelicModel BuildSeaGlass(string receivingName)
+    {
+        SeaGlass seaGlass = (SeaGlass)ModelDb.Relic<SeaGlass>().ToMutable();
+        // 海玻璃 CharacterId 决定 15 张牌的来源职业：选一个不同于当前玩家的职业（优先 Silent）。
+        seaGlass.CharacterId = receivingName.Equals(nameof(Silent), StringComparison.Ordinal)
+            ? ModelDb.Character<Ironclad>().Id
+            : ModelDb.Character<Silent>().Id;
+        return seaGlass;
+    }
+
+    /// <summary>渠道演示脚手架：fire-and-forget 获得遗物（不 await，避免与覆盖层驱动互锁）。</summary>
+    private static async Task ForceObtainFireAndForgetAsync(RelicModel relic, Player player, CancellationToken token)
+    {
+        try
+        {
+            await RelicCmd.Obtain(relic, player);
+            await RunManager.Instance.ActionExecutor.FinishedExecutingActions();
+        }
+        catch (OperationCanceledException)
+        {
+            // 跑局结束取消，正常。
+        }
+        catch (Exception ex)
+        {
+            RunAutoController.Session?.LogDecision($"脚手架：强制获得遗物失败 {relic.Id.Entry}: {ex.Message}");
+        }
+        token.ThrowIfCancellationRequested();
+    }
+
     /// <summary>
     /// 选一个选项：先排除会杀死玩家的选项；先古遗物（全遗物三选）用遗物评分；
     /// 其余事件按 <see cref="EventOptionValuer"/> 的价值排序：
@@ -290,6 +356,21 @@ internal static class EventDriver
         }
         if (relicOptions.Count > 0 && relicOptions.Count == options.Count)
         {
+            // 渠道演示脚手架：开局 Neow 强制选指定先古遗物（如万花筒），否则按评分。
+            string forceId = RunAutoSettings.ForceNeowRelicId;
+            if (!string.IsNullOrWhiteSpace(forceId) && (runState?.CurrentActIndex ?? 0) == 0)
+            {
+                foreach (NEventOptionButton button in relicOptions)
+                {
+                    RelicModel relic = button.Option.Relic!;
+                    if (relic.Id.Entry.Equals(forceId, StringComparison.OrdinalIgnoreCase)
+                        || relic.GetType().Name.Equals(forceId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        basis = $"强制Neow遗物:{relic.Id.Entry}";
+                        return button;
+                    }
+                }
+            }
             RelicModel best = RelicPickerAI.PickBestAncientChoice(
                 relicOptions.ConvertAll(b => b.Option.Relic!), runState);
             foreach (NEventOptionButton button in relicOptions)
