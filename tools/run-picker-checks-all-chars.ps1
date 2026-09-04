@@ -19,11 +19,11 @@ $ErrorActionPreference = "Stop"
 $toolsDir = $PSScriptRoot
 
 $characters = @(
-    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845;  Conf = 32.575; Head12 = 19.91;  Dupes = 0.91;  Barr = 20.085; Act1Conf = 30.575; Act1Strike = -6.03 },
-    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057;  Conf = 31.787; Head12 = 19.122; Dupes = 0.122; Barr = 19.297; Act1Conf = 29.787; Act1Strike = -3.983 },
-    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;   Conf = 34.69;  Head12 = 22.025; Dupes = 12.025; Barr = 22.2;   Act1Conf = 41.69;  Act1Strike = -2.16 },
-    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585;  Conf = 31.315; Head12 = 18.65;  Dupes = -0.35; Barr = 18.825; Act1Conf = 29.315; Act1Strike = -7.47 },
-    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225;  Conf = 30.955; Head12 = 18.29;  Dupes = -0.71; Barr = 18.465; Act1Conf = 28.955; Act1Strike = -7.83 }
+    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845;  Conf = 32.575; Head12 = 19.91;  Dupes = 0.91;  Barr = 20.085; Act1Conf = 30.575; Act1Strike = -6.03;   ComboFinale = 39.755 },
+    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057;  Conf = 31.787; Head12 = 19.122; Dupes = 0.122; Barr = 19.297; Act1Conf = 29.787; Act1Strike = -3.983;  ComboFinale = 40.967 },
+    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;   Conf = 34.69;  Head12 = 22.025; Dupes = 12.025; Barr = 22.2;   Act1Conf = 41.69;  Act1Strike = -2.16;   ComboFinale = 50.87 },
+    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585;  Conf = 31.315; Head12 = 18.65;  Dupes = -0.35; Barr = 18.825; Act1Conf = 29.315; Act1Strike = -7.47;  ComboFinale = 38.495 },
+    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225;  Conf = 30.955; Head12 = 18.29;  Dupes = -0.71; Barr = 18.465; Act1Conf = 28.955; Act1Strike = -7.83;  ComboFinale = 40.135 }
 )
 
 $failed = @()
@@ -47,7 +47,8 @@ foreach ($ch in $characters) {
   {"kind":"AncientRelic","optionIds":["CURSED_PEARL","GOLDEN_PEARL"],"expectedPickId":"CURSED_PEARL"},
   {"kind":"AncientRelic","optionIds":["NEOWS_BONES","GOLDEN_PEARL"],"expectedPickId":"GOLDEN_PEARL"},
   {"kind":"Card","optionIds":["CONFLAGRATION"],"actIndexForTest":1,"expectedScore":$($ch.Act1Conf)},
-  {"kind":"Card","optionIds":["$strike"],"actIndexForTest":1,"expectedScore":$($ch.Act1Strike)}
+  {"kind":"Card","optionIds":["$strike"],"actIndexForTest":1,"expectedScore":$($ch.Act1Strike)},
+  {"kind":"Card","optionIds":["GRAND_FINALE"],"deckCardIds":["STAMPEDE"],"expectedScore":$($ch.ComboFinale)}
 ]
 "@
     Write-Host ""

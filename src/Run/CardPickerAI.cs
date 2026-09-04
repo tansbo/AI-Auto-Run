@@ -150,6 +150,10 @@ internal static class CardPickerAI
         // 轴越深加分越高，封顶避免无脑堆同一轴。未启动的轴不加分（不会硬塞引擎）。
         score += EngineSynergy(card, context);
 
+        // 语义配合（跨职业价值补充）：引擎×终结 型组合（免费攻击引擎×七星、自动攻击×华丽收场等），
+        // 同轴检测覆盖不到；条目见 CardComboProfiles（仅收录反编译机制核对过的方向）。
+        score += CardComboProfiles.Bonus(card.Id.Entry, context);
+
         return score;
     }
 
@@ -265,6 +269,17 @@ internal sealed class DeckContext
 
     public int CountOf(CardModel card)
         => _cardCounts.TryGetValue(card.Id.Entry, out int count) ? count : 0;
+
+    /// <summary>牌组是否已含任一 Id.Entry（任意同名一张即可），供语义配合表查牌组构成。</summary>
+    public bool ContainsAny(IEnumerable<string> entries)
+    {
+        foreach (string entry in entries)
+        {
+            if (_cardCounts.TryGetValue(entry, out int count) && count > 0)
+                return true;
+        }
+        return false;
+    }
 
     public static DeckContext From(Player? player, RunState? runState)
     {
