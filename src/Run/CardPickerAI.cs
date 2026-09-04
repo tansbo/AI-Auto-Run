@@ -157,7 +157,35 @@ internal static class CardPickerAI
         // 卡组短板/成型度：牌组缺某类角色能力时，能补位的候选更值（成型后自然衰减见上方"冗余衰减"）。
         score += DeckGapBonus(card, context);
 
+        // 本幕 Boss 取向：Boss 机制决定哪些卡更值（Vantom 墨影幻灵=每实例减免→多段/廉价攻击升值；
+        // TestSubject 实验体=技能税→技能贬值）。规则与依据见 CardComboProfiles 同源 decomp 取证。
+        score += BossAdjust(card, context);
+
         return score;
+    }
+
+    /// <summary>
+    /// 本幕 Boss 取向修正（仅收录反编译机制核对的取向）：
+    /// ①InstanceCapped（Vantom 墨影幻灵，SlipperyPower：每个伤害实例封顶 1 并逐实例扣 8/9 层）：
+    ///   多段(Repeat 变量)/0-1 费攻击 +4；≥3 费单发攻击 −4（大单发在层数击穿前≈每击 1 伤）。
+    /// ②SkillTax（TestSubject 实验体，EnragePower：玩家每打一张技能牌它 +力量）：技能候选 −3。
+    /// </summary>
+    private static float BossAdjust(CardModel card, DeckContext context)
+    {
+        switch (context.ActBoss)
+        {
+            case ActBossKind.InstanceCapped:
+                if (card.Type != CardType.Attack || card.EnergyCost.CostsX)
+                    return 0f;
+                bool multiHit = card.DynamicVars.ContainsKey(RepeatVarName);
+                if (multiHit || card.EnergyCost.Canonical <= 1)
+                    return 4f;
+                return card.EnergyCost.Canonical >= 3 ? -4f : 0f;
+            case ActBossKind.SkillTax:
+                return card.Type == CardType.Skill ? -3f : 0f;
+            default:
+                return 0f;
+        }
     }
 
     /// <summary>
@@ -218,6 +246,22 @@ internal static class CardPickerAI
     private const string StrengthVarName = "StrengthPower";
     private const string DrawVarCards = "Cards";
     private const string DrawVarEnergy = "Energy";
+    private const string RepeatVarName = "Repeat";
+}
+
+/// <summary>当前幕 Boss 的"卡牌价值取向"分类（由 runState.Act.BossEncounter 类型映射，开局已掷定）。</summary>
+internal enum ActBossKind
+{
+    /// <summary>无已知取向（非本表 Boss/未知）。</summary>
+    None,
+
+    /// <summary>每伤害实例减免型（Vantom 墨影幻灵：SlipperyPower 把每个实例封顶 1 并逐实例扣层）
+    /// → 多段/廉价攻击价值升、单发大伤害价值降。</summary>
+    InstanceCapped,
+
+    /// <summary>技能税型（TestSubject 实验体：玩家每打一张技能牌它 +力量）
+    /// → 技能类候选价值降。</summary>
+    SkillTax,
 }
 
 /// <summary>一次选牌决策的牌组画像，构造一次后复用。</summary>
@@ -237,6 +281,9 @@ internal sealed class DeckContext
     /// <summary>接收职业（当前玩家的角色类名大写，如 IRONCLAD/SILENT/DEFECT/NECROBINDER/REGENT；未知为空）。
     /// 供 CardWinStats.BonusFor 判断跨池/无色卡对当前职业的相对强度。</summary>
     public string ReceivingRole { get; }
+
+    /// <summary>当前幕 Boss 取向（由 runState.Act.BossEncounter 映射；无 runState/未知时 None）。</summary>
+    public ActBossKind ActBoss { get; }
 
     /// <summary>机械轴同轴计数：牌组里已有多少张同关键词/标签/DynamicVar/零费牌（体系成型度）。</summary>
     public int ExhaustAxis { get; }
@@ -264,6 +311,7 @@ internal sealed class DeckContext
         float hpRatio,
         int actIndex,
         string receivingRole,
+        ActBossKind actBoss,
         int exhaustAxis,
         int shivAxis,
         int minionAxis,
@@ -284,6 +332,7 @@ internal sealed class DeckContext
         HpRatio = hpRatio;
         ActIndex = actIndex;
         ReceivingRole = receivingRole;
+        ActBoss = actBoss;
         ExhaustAxis = exhaustAxis;
         ShivAxis = shivAxis;
         MinionAxis = minionAxis;
@@ -294,6 +343,18 @@ internal sealed class DeckContext
         DrawAxis = drawAxis;
         ZeroCostAxis = zeroCostAxis;
         HeavyAttackCount = heavyAttackCount;
+    }
+
+    private static ActBossKind BossKindOf(RunState? runState)
+    {
+        if (runState == null || runState.Act == null || runState.Act.BossEncounter == null)
+            return ActBossKind.None;
+        return runState.Act.BossEncounter.GetType().Name switch
+        {
+            nameof(MegaCrit.Sts2.Core.Models.Encounters.VantomBoss) => ActBossKind.InstanceCapped,
+            nameof(MegaCrit.Sts2.Core.Models.Encounters.TestSubjectBoss) => ActBossKind.SkillTax,
+            _ => ActBossKind.None,
+        };
     }
 
     public int CountOf(CardModel card)
@@ -318,7 +379,7 @@ internal sealed class DeckContext
             : player.Character.GetType().Name.ToUpperInvariant();
         if (deck == null)
             return new DeckContext(null, 0, 0, 0, 0, 0, 1f, runState?.CurrentActIndex ?? 0,
-                receivingRole, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                receivingRole, BossKindOf(runState), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         int attack = 0, power = 0, block = 0, aoE = 0;
         int exhaustAxis = 0, shivAxis = 0, minionAxis = 0, ostyAxis = 0;
@@ -366,7 +427,7 @@ internal sealed class DeckContext
             : (float)player.Creature.CurrentHp / player.Creature.MaxHp;
 
         var context = new DeckContext(deck, deck.Count, attack, power, block, aoE, hpRatio, runState?.CurrentActIndex ?? 0,
-            receivingRole, exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis, heavyAttack);
+            receivingRole, BossKindOf(runState), exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis, heavyAttack);
         foreach (KeyValuePair<string, int> pair in counts)
             context._cardCounts[pair.Key] = pair.Value;
         return context;
