@@ -219,6 +219,11 @@ internal static class CardPickerAI
         CardAbilityProfile profile = CardAbilityProfileReader.Of(card);
         if (profile.IsZero)
             return 0f; // 候选四维全 0（纯工具/状态/诅咒式卡），没有任何维度可补
+        // 多段强度精化（用户规则）：多段(Repeat)/X 段攻击的每段都被力量放大——本职业力量易得（池内
+        // StrengthPower 产出数高于中位）则每段更值、画像攻击端按比例上调；力量稀缺职业少算。
+        // 指数来自 RoleStatusAccess 的运行时真实池枚举（非拍脑袋）；墨灵每段减免已由 BossAdjust 覆盖，不在此重复。
+        if (profile.Attack > 0f && (card.DynamicVars.ContainsKey(RepeatVarName) || card.EnergyCost.CostsX))
+            profile = profile with { Attack = profile.Attack * RoleStatusAccess.MultiHitStrengthScale(context.ReceivingRole) };
         DeckAbilityTotals totals = context.AbilityTotals; // 惰性统计一次，同一决策所有候选共享
 
         (float needAttack, float needDefense, float needEnergy, float needDraw) = context.ActIndex switch
@@ -275,7 +280,9 @@ internal static class CardPickerAI
         float bonus = 0f;
         if (VulnerableDependentCards.TryGetValue(card.Id.Entry, out float dependentBonus)
             && context.DeckVarCount(VulnerableVarKey) > 0)
-            bonus += dependentBonus;
+            // 多段强度精化：易伤依赖卡按本职业 VulnerablePower 产出指数放大（前置易伤源在本职业
+            // 牌池的可得性——牌组已实际施加易伤时仍按此加权，指数来自 RoleStatusAccess 真实池枚举）。
+            bonus += dependentBonus * RoleStatusAccess.VulnerableDependentScale(context.ReceivingRole);
         if (card.Type == CardType.Attack
             && !card.EnergyCost.CostsX
             && card.EnergyCost.Canonical >= 3)

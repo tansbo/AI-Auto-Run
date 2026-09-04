@@ -12,6 +12,13 @@
 # 末尾新增"施加×依赖"对照对：DOMINATE/COLOSSUS 无注入 vs 注入 BASH（Bash 的 DynamicVars 带
 # "VulnerablePower" 键，decomp Bash.cs CanonicalVars——选它做注入是因为 UPPERCUT 只有通用 "Power"
 # 键（Uppercut.cs L19-23），DeckVarCount("VulnerablePower") 看不到，拿不准时以可读数据为准）。
+# 2026-09-04（联动互乘精化 v2）：多段/易伤依赖强度按"本职业池内状态产出指数"加权（RoleStatusAccess，
+# 运行时枚举 ModelDb.AllCharacters → CardPool.AllCards 的真实去重卡数）。①多段(Repeat/X)攻击画像
+# 按 StrengthPower 产出数相对中位缩放（[0.8,1.25]，实测 IC=7 其余 0-1，中位 1）——新增 Conf12 行
+# （12 张防御后的燃烧，攻击缺口大 → 能分辨每段力量缩放，SILENT ×0.8 使第 2 幕燃烧期望略降即旁证）；
+# ②DOMINATE/COLOSSUS 加成按 VulnerablePower 产出数相对中位缩放（[0.8,1.3]，实测 IC=6/REGENT=5/
+# NECRO=2/SILENT=1/DEFECT=1，中位 2 → 注入 BASH 后实测 +6.5/+6.5/+5/+4/+4）。BossAdjust（墨灵每段
+# 减免）不动。
 #
 # 用法：pwsh -NoProfile -File tools\run-picker-checks-all-chars.ps1
 param(
@@ -23,11 +30,11 @@ $ErrorActionPreference = "Stop"
 $toolsDir = $PSScriptRoot
 
 $characters = @(
-    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845; Conf = 36.575; Head12 = 25.805; Dupes = 4.91;  Barr = 20.085; Act1Conf = 34.575; Act1Strike = -6.03;  ComboFinale = 45.755; Dom0 = 25.755; Col0 = 15.17;   DomBash = 25.755; ColBash = 15.17 },
-    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057; Conf = 39.787; Head12 = 24.622; Dupes = 4.122; Barr = 19.297; Act1Conf = 33.787; Act1Strike = -3.983; ComboFinale = 47.967; Dom0 = 19.967; Col0 = 9.382;  DomBash = 24.967; ColBash = 14.382 },
-    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;  Conf = 42.69;  Head12 = 27.116; Dupes = 16.025; Barr = 22.2;  Act1Conf = 43.912; Act1Strike = -2.16;  ComboFinale = 56.87;  Dom0 = 22.87;  Col0 = 12.285; DomBash = 27.87;  ColBash = 17.285 },
-    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585; Conf = 39.315; Head12 = 23.741; Dupes = 3.65;  Barr = 18.825; Act1Conf = 31.537; Act1Strike = -7.47;  ComboFinale = 44.495; Dom0 = 19.495; Col0 = 8.91;   DomBash = 24.495; ColBash = 13.91 },
-    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225; Conf = 34.955; Head12 = 23.73;  Dupes = 3.29;  Barr = 18.465; Act1Conf = 32.955; Act1Strike = -7.83;  ComboFinale = 47.135; Dom0 = 24.135; Col0 = 13.55;  DomBash = 24.135; ColBash = 13.55 }
+    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845; Conf = 36.575; Head12 = 25.805; Conf12 = 48.207; Dupes = 4.91;  Barr = 20.085; Act1Conf = 34.575; Act1Strike = -6.03;  ComboFinale = 45.755; Dom0 = 27.255; Col0 = 16.67;  DomBash = 27.255; ColBash = 16.67 },
+    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057; Conf = 39.787; Head12 = 24.622; Conf12 = 46.12;  Dupes = 4.122; Barr = 19.297; Act1Conf = 33.343; Act1Strike = -3.983; ComboFinale = 47.967; Dom0 = 19.967; Col0 = 9.382;  DomBash = 23.967; ColBash = 13.382 },
+    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;  Conf = 42.69;  Head12 = 27.116; Conf12 = 48.902; Dupes = 16.025; Barr = 22.2;  Act1Conf = 43.912; Act1Strike = -2.16;  ComboFinale = 56.87;  Dom0 = 22.87;  Col0 = 12.285; DomBash = 26.87;  ColBash = 16.285 },
+    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585; Conf = 39.315; Head12 = 23.741; Conf12 = 45.527; Dupes = 3.65;  Barr = 18.825; Act1Conf = 31.537; Act1Strike = -7.47;  ComboFinale = 44.495; Dom0 = 19.495; Col0 = 8.91;   DomBash = 24.495; ColBash = 13.91 },
+    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225; Conf = 34.955; Head12 = 23.73;  Conf12 = 45.555; Dupes = 3.29;  Barr = 18.465; Act1Conf = 32.955; Act1Strike = -7.83;  ComboFinale = 47.135; Dom0 = 25.635; Col0 = 15.05;  DomBash = 25.635; ColBash = 15.05 }
 )
 
 $failed = @()
@@ -43,6 +50,7 @@ foreach ($ch in $characters) {
   {"kind":"Card","optionIds":["$defend"],"playerHp":20,"playerMaxHp":80,"expectedScore":$($ch.Def20)},
   {"kind":"Card","optionIds":["CONFLAGRATION"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Conf)},
   {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":[$defend12],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Head12)},
+  {"kind":"Card","optionIds":["CONFLAGRATION"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Conf12)},
   {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":["HEADBUTT","HEADBUTT","HEADBUTT"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Dupes)},
   {"kind":"Card","optionIds":["BARRICADE"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Barr)},
   {"kind":"Relic","optionIds":["ANCHOR","ART_OF_WAR"],"expectedPickId":"ART_OF_WAR"},
@@ -85,3 +93,4 @@ if ($failed.Count -eq 0) {
     Write-Host "ALL_CHARS_PARTIAL: 失败角色 = $($failed -join ',')"
     exit 1
 }
+
