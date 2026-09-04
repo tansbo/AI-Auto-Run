@@ -8,7 +8,9 @@ namespace CombatSolver.Run;
 /// <summary>
 /// 选牌智能：对战后卡牌奖励候选做结构评分，决定选哪张或跳过。
 /// 只读不可变数据（CardModel/Player/RunState），无模拟、无副作用、主线程执行。
-/// 评分 = 稀有度 + 费用效率 + 类型契合 + 关键词 + AOE/格挡覆盖 + 重复牌惩罚 + 牌组膨胀 + 精选表加成。
+/// 评分 = 稀有度 + 费用效率 + 类型契合 + 关键词 + AOE/格挡覆盖 + 重复牌惩罚 + 牌组膨胀 + 精选表加成
+///      + 卡组体系契合（同一机械轴在牌组里已成型时，同轴牌加分）
+///      + 数据驱动（A10 胜率差，已含角色池中位，见 CardWinStats）。
 /// 最高分低于 <see cref="SkipThreshold"/> 时返回 null（跳过）。
 /// </summary>
 internal static class CardPickerAI
@@ -125,12 +127,67 @@ internal static class CardPickerAI
         if (context.HpRatio < 0.4f && card.GainsBlock)
             score += 5f;
 
+        // 成型度/冗余衰减（用户规则）：角色某维度已饱和时，多余的同类牌收益递减——会稀释成型卡组。
+        // 攻击：攻击占比过半且牌组≥15；防御：格挡牌过半且牌组≥15；能力：已有 5+ 张 Power。
+        if (context.DeckSize >= 15)
+        {
+            if (card.Type == CardType.Attack && context.AttackRatio > 0.5f)
+                score -= 3f;
+            if (card.GainsBlock && context.BlockRatio > 0.55f)
+                score -= 3f;
+            if (card.Type == CardType.Power && context.PowerCount >= 5)
+                score -= 2f;
+        }
+
         // 数据驱动（Spire Codex A10 真实对局）：胜率差加成，卡在牌组里会随 DeckContext 一并复算。
         if (CardWinStats.BonusById.TryGetValue(card.Id.Entry, out float winBonus))
             score += winBonus;
 
+        // 卡组体系契合：候选属于某机械轴，且牌组里该轴已成型（有 ≥1 张同轴牌）时加分。
+        // 机械轴全部取自卡牌自身的可读数据（关键词/标签/DynamicVar/费用），不是手写卡表：
+        // 比如牌组已在攒易伤/亡魂(Doom)/小刀(Shiv)/毒/力量/过牌引擎时，同轴新牌更值；
+        // 轴越深加分越高，封顶避免无脑堆同一轴。未启动的轴不加分（不会硬塞引擎）。
+        score += EngineSynergy(card, context);
+
         return score;
     }
+
+    /// <summary>候选卡与牌组既有机械轴的契合加成：每命中一个已启动的轴 +2×min(3, 同轴数)。</summary>
+    private static float EngineSynergy(CardModel card, DeckContext context)
+    {
+        float bonus = 0f;
+        if (card.Keywords.Contains(CardKeyword.Exhaust))
+            bonus += AxisBonus(context.ExhaustAxis);
+        if (card.Tags.Contains(CardTag.Shiv))
+            bonus += AxisBonus(context.ShivAxis);
+        if (card.Tags.Contains(CardTag.Minion))
+            bonus += AxisBonus(context.MinionAxis);
+        if (card.Tags.Contains(CardTag.OstyAttack))
+            bonus += AxisBonus(context.OstyAxis);
+        if (card.DynamicVars.ContainsKey(PoisonVarName))
+            bonus += AxisBonus(context.PoisonAxis);
+        if (card.DynamicVars.ContainsKey(DoomVarName))
+            bonus += AxisBonus(context.DoomAxis);
+        if (card.DynamicVars.ContainsKey(StrengthVarName))
+            bonus += AxisBonus(context.StrengthAxis);
+        if (card.DynamicVars.ContainsKey(DrawVarCards) || card.DynamicVars.ContainsKey(DrawVarEnergy))
+            bonus += AxisBonus(context.DrawAxis);
+        if (IsZeroCost(card))
+            bonus += AxisBonus(context.ZeroCostAxis);
+        return bonus;
+    }
+
+    private static float AxisBonus(int deckAxisCount)
+        => deckAxisCount <= 0 ? 0f : 2f * Math.Min(3, deckAxisCount);
+
+    private static bool IsZeroCost(CardModel card)
+        => !card.EnergyCost.CostsX && card.EnergyCost.Canonical <= 0;
+
+    private const string PoisonVarName = "PoisonPower";
+    private const string DoomVarName = "DoomPower";
+    private const string StrengthVarName = "StrengthPower";
+    private const string DrawVarCards = "Cards";
+    private const string DrawVarEnergy = "Energy";
 }
 
 /// <summary>一次选牌决策的牌组画像，构造一次后复用。</summary>
@@ -145,6 +202,17 @@ internal sealed class DeckContext
     public float HpRatio { get; }
     public int ActIndex { get; }
 
+    /// <summary>机械轴同轴计数：牌组里已有多少张同关键词/标签/DynamicVar/零费牌（体系成型度）。</summary>
+    public int ExhaustAxis { get; }
+    public int ShivAxis { get; }
+    public int MinionAxis { get; }
+    public int OstyAxis { get; }
+    public int PoisonAxis { get; }
+    public int DoomAxis { get; }
+    public int StrengthAxis { get; }
+    public int DrawAxis { get; }
+    public int ZeroCostAxis { get; }
+
     private readonly Dictionary<string, int> _cardCounts = new(StringComparer.Ordinal);
 
     public float AttackRatio => DeckSize == 0 ? 0f : (float)AttackCount / DeckSize;
@@ -158,7 +226,16 @@ internal sealed class DeckContext
         int blockCardCount,
         int aoECount,
         float hpRatio,
-        int actIndex)
+        int actIndex,
+        int exhaustAxis,
+        int shivAxis,
+        int minionAxis,
+        int ostyAxis,
+        int poisonAxis,
+        int doomAxis,
+        int strengthAxis,
+        int drawAxis,
+        int zeroCostAxis)
     {
         Deck = deck;
         DeckSize = deckSize;
@@ -168,6 +245,15 @@ internal sealed class DeckContext
         AoECount = aoECount;
         HpRatio = hpRatio;
         ActIndex = actIndex;
+        ExhaustAxis = exhaustAxis;
+        ShivAxis = shivAxis;
+        MinionAxis = minionAxis;
+        OstyAxis = ostyAxis;
+        PoisonAxis = poisonAxis;
+        DoomAxis = doomAxis;
+        StrengthAxis = strengthAxis;
+        DrawAxis = drawAxis;
+        ZeroCostAxis = zeroCostAxis;
     }
 
     public int CountOf(CardModel card)
@@ -177,9 +263,12 @@ internal sealed class DeckContext
     {
         IReadOnlyList<CardModel>? deck = player == null ? null : PileType.Deck.GetPile(player).Cards;
         if (deck == null)
-            return new DeckContext(null, 0, 0, 0, 0, 0, 1f, runState?.CurrentActIndex ?? 0);
+            return new DeckContext(null, 0, 0, 0, 0, 0, 1f, runState?.CurrentActIndex ?? 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         int attack = 0, power = 0, block = 0, aoE = 0;
+        int exhaustAxis = 0, shivAxis = 0, minionAxis = 0, ostyAxis = 0;
+        int poisonAxis = 0, doomAxis = 0, strengthAxis = 0, drawAxis = 0, zeroCostAxis = 0;
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (CardModel card in deck)
         {
@@ -193,13 +282,32 @@ internal sealed class DeckContext
                 block++;
             if (card.TargetType is TargetType.AllEnemies or TargetType.RandomEnemy)
                 aoE++;
+            if (card.Keywords.Contains(CardKeyword.Exhaust))
+                exhaustAxis++;
+            if (card.Tags.Contains(CardTag.Shiv))
+                shivAxis++;
+            if (card.Tags.Contains(CardTag.Minion))
+                minionAxis++;
+            if (card.Tags.Contains(CardTag.OstyAttack))
+                ostyAxis++;
+            if (card.DynamicVars.ContainsKey("PoisonPower"))
+                poisonAxis++;
+            if (card.DynamicVars.ContainsKey("DoomPower"))
+                doomAxis++;
+            if (card.DynamicVars.ContainsKey("StrengthPower"))
+                strengthAxis++;
+            if (card.DynamicVars.ContainsKey("Cards") || card.DynamicVars.ContainsKey("Energy"))
+                drawAxis++;
+            if (!card.EnergyCost.CostsX && card.EnergyCost.Canonical <= 0)
+                zeroCostAxis++;
         }
 
         float hpRatio = player == null || player.Creature.MaxHp <= 0
             ? 1f
             : (float)player.Creature.CurrentHp / player.Creature.MaxHp;
 
-        var context = new DeckContext(deck, deck.Count, attack, power, block, aoE, hpRatio, runState?.CurrentActIndex ?? 0);
+        var context = new DeckContext(deck, deck.Count, attack, power, block, aoE, hpRatio, runState?.CurrentActIndex ?? 0,
+            exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis);
         foreach (KeyValuePair<string, int> pair in counts)
             context._cardCounts[pair.Key] = pair.Value;
         return context;

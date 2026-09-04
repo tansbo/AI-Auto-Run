@@ -5,6 +5,9 @@
 #
 # 期望值对 5 个角色通用：各角色初始牌组都含 >=3 张同名打击/防御（重复惩罚 -10 生效）、
 # 无 AOE、攻击比例 >0.3（无攻击比例加成），起始特殊牌均为单目标基础牌。
+# 2026-09-04：战吼（抽牌轴，CardsVar）单卡期望按角色参数化——SILENT（12 张，含幸存者抽牌）与
+# REGENT（10 张，含抽牌/能量轴起始牌）初始牌组带抽牌轴，触发体系契合 +2（32.845 → 34.845）；
+# IRONCLAD/DEFECT/NECROBINDER 初始牌组无抽牌轴，维持 32.845。
 #
 # 用法：pwsh -NoProfile -File tools\run-picker-checks-all-chars.ps1
 param(
@@ -15,15 +18,12 @@ param(
 $ErrorActionPreference = "Stop"
 $toolsDir = $PSScriptRoot
 
-# 各角色初始牌组攻击数不同（Ironclad 6 / Silent 6 / Defect 4 / Necrobinder 5 / Regent 5）。
-# 注入 12 防御 + 3 头槌后，攻击比例 Defect=7/25=0.28<0.3 触发攻击比例加成 +9，其余角色 ≥0.32 不触发，
-# 因此 3 个比例敏感检查按角色给出期望值（Defect 不同）。
 $characters = @(
-    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Dupes = 0.91;  Def20 = -8.995; Act1Conf = 30.575; Act1Strike = -6.03 },
-    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -3.983 },
-    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Dupes = 9.91;  Def20 = -9.13;  Act1Conf = 39.575; Act1Strike = -2.16 },
-    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -7.47 },
-    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Dupes = 0.91;  Def20 = -5.395; Act1Conf = 30.575; Act1Strike = -7.83 }
+    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Dupes = 0.91;  Def20 = -8.995; Act1Conf = 30.575; Act1Strike = -6.03;  Bt = 32.845 },
+    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -3.983; Bt = 34.845 },
+    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Dupes = 9.91;  Def20 = -9.13;  Act1Conf = 39.575; Act1Strike = -2.16;  Bt = 32.845 },
+    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -7.47;  Bt = 32.845 },
+    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Dupes = 0.91;  Def20 = -5.395; Act1Conf = 30.575; Act1Strike = -7.83;  Bt = 34.845 }
 )
 
 $failed = @()
@@ -35,7 +35,7 @@ foreach ($ch in $characters) {
 [
   {"kind":"Card","optionIds":["$strike"]},
   {"kind":"Card","optionIds":["$strike","$defend","BATTLE_TRANCE"],"expectedPickId":"BATTLE_TRANCE"},
-  {"kind":"Card","optionIds":["BATTLE_TRANCE"],"expectedScore":32.845},
+  {"kind":"Card","optionIds":["BATTLE_TRANCE"],"expectedScore":$($ch.Bt)},
   {"kind":"Card","optionIds":["$defend"],"playerHp":20,"playerMaxHp":80,"expectedScore":$($ch.Def20)},
   {"kind":"Card","optionIds":["CONFLAGRATION"],"playerHp":80,"playerMaxHp":80,"expectedScore":32.575},
   {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":[$defend12],"playerHp":80,"playerMaxHp":80,"expectedScore":19.91},
