@@ -96,6 +96,8 @@ internal sealed record SolverSettingsData
     // 遥测自动上传（opt-in）：开启并填收集端点后，每局跑完自动 POST 匿名对局遥测。
     public bool RunAutoTelemetryUpload { get; init; }
     public string? RunAutoTelemetryUrl { get; init; }
+    // 演示定格（默认 0=关）：关键决策前停顿毫秒，便于录制/观察 AI 选牌/选路/事件/遗物过程。
+    public int RunAutoDemoHoldMs { get; init; }
 }
 
 internal sealed record SolverSettingsSnapshot(

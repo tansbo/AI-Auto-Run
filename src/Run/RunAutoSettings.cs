@@ -84,6 +84,24 @@ internal static class RunAutoSettings
 
     public static string TelemetryUploadUrl => SolverSettings.Current.RunAutoTelemetryUrl ?? string.Empty;
 
+    /// <summary>演示定格毫秒（0=关）：关键跑局决策前把界面/决策条留屏，便于录制展示。</summary>
+    public static int DemoHoldMs => SolverSettings.Current.RunAutoDemoHoldMs;
+
+    public static async Task HoldForDemoAsync(CancellationToken token)
+    {
+        int ms = DemoHoldMs;
+        if (ms <= 0)
+            return;
+        try
+        {
+            await Task.Delay(ms, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // 跑局结束/取消，静默。
+        }
+    }
+
     public static void SetTelemetryUploadEnabled(bool value, bool persist = true)
     {
         SolverSettingsData data = SolverSettings.Current with { RunAutoTelemetryUpload = value };

@@ -146,6 +146,7 @@ internal static class EventDriver
                 // 先古遗物等关键选择：停顿一下让底部覆盖层显示推荐，用户能看清再点。
                 if (choice.Option.Relic != null)
                     await Task.Delay(1500, token);
+                await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：事件选项+决策条留屏
                 await RunUiHelper.ClickAsync(choice, 250);
 
                 // 等选项刷新 / 覆盖层打开 / 地图打开 / 房间消失 / 战斗开始。

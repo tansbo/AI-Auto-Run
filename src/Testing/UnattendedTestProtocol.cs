@@ -187,6 +187,8 @@ internal sealed class UnattendedTestRequest
     /// <summary>遥测自动上传（opt-in）：开启并把本局匿名遥测 POST 到 RunAutoTelemetryUrl。</summary>
     public bool RunAutoTelemetryUpload { get; init; }
     public string? RunAutoTelemetryUrl { get; init; }
+    /// <summary>演示定格毫秒（0=关）：关键决策前停顿，便于录制展示 AI 选牌/选路/事件/遗物。</summary>
+    public int RunAutoDemoHoldMs { get; init; }
     public bool ExitOnComplete { get; init; } = true;
 }
 
