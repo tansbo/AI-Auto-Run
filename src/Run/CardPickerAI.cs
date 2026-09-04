@@ -10,7 +10,10 @@ namespace CombatSolver.Run;
 /// 只读不可变数据（CardModel/Player/RunState），无模拟、无副作用、主线程执行。
 /// 评分 = 稀有度 + 费用效率 + 类型契合 + 关键词 + AOE/格挡覆盖 + 重复牌惩罚 + 牌组膨胀 + 精选表加成
 ///      + 卡组体系契合（同一机械轴在牌组里已成型时，同轴牌加分）
-///      + 数据驱动（A10 胜率差，已含角色池中位，见 CardWinStats）。
+///      + 数据驱动（A10 胜率差，已含角色池中位，见 CardWinStats）
+///      + 四维补位（攻击/防御/回费/过牌 画像合计 vs 分幕需求向量的缺口覆盖，见 <see cref="DeckGapFill"/>）
+///      + 联动互乘（施加×依赖 / 回费×大费，见 <see cref="SynergyAmplify"/>）
+///      + 本幕 Boss 取向（见 <see cref="BossAdjust"/>）。
 /// 最高分低于 <see cref="SkipThreshold"/> 时返回 null（跳过）。
 /// </summary>
 internal static class CardPickerAI
@@ -154,8 +157,15 @@ internal static class CardPickerAI
         // 同轴检测覆盖不到；条目见 CardComboProfiles（仅收录反编译机制核对过的方向）。
         score += CardComboProfiles.Bonus(card.Id.Entry, context);
 
-        // 卡组短板/成型度：牌组缺某类角色能力时，能补位的候选更值（成型后自然衰减见上方"冗余衰减"）。
-        score += DeckGapBonus(card, context);
+        // 四维补位（2026-09-04 起取代 DeckGapBonus）：攻击/防御/回费/过牌四维画像合计 vs 分幕需求向量
+        // 逐维比缺口，缺口存在时按"该候选能补的部分 ÷ 缺口"比例 × 每维小权重；只补不扣、封顶 10 防乱抓。
+        // 数值口径与依据见 DeckGapFill 注释（启发式、保守、可解释）。
+        score += DeckGapFill(card, context);
+
+        // 联动互乘（SynergyAmplify，放在补位分后）：候选的"单卡价值"会随牌组已有能力被放大——
+        // ①施加×依赖：牌组已能稳定施加易伤时，收益随易伤成长的卡（DOMINATE/COLOSSUS）升值；
+        // ②回费×大费：牌组回费/免费卡充足时，≥3 费攻击的可打窗口更大。依据见 SynergyAmplify 注释。
+        score += SynergyAmplify(card, context);
 
         // 本幕 Boss 取向：Boss 机制决定哪些卡更值（Vantom 墨影幻灵=每实例减免→多段/廉价攻击升值；
         // TestSubject 实验体=技能税→技能贬值）。规则与依据见 CardComboProfiles 同源 decomp 取证。
@@ -189,24 +199,91 @@ internal static class CardPickerAI
     }
 
     /// <summary>
-    /// 短板补位加分（启发式，随语料校准）：
-    /// ①过牌/启动缺口：牌组一张抽牌/能量轴牌都没有且已 ≥8 张时，带抽轴候选 +5（首张过牌最值）；
-    /// ②高伤/终结缺口：已 ≥12 张且一张 ≥2 费攻击都没有时（幕 1 中段后），≥2 费攻击候选 +5
-    ///   （打精英/Boss 的斩杀线层缺失）。只加不减、阈值保守，避免开局乱抓大费牌。
+    /// 四维补位加分（2026-09-04 起取代 DeckGapBonus，fixture 相应重校）：
+    /// 牌组四维画像合计（攻击/防御/回费/过牌，见 <see cref="CardAbilityProfileReader"/>）对比"分幕需求向量"，
+    /// 每个维度有缺口（合计 &lt; 需求）时，把候选在该维能补的量除以缺口、按覆盖比例 × 小权重给分。
+    /// 只补不扣（永远不因已饱和扣分——饱和后的冗余衰减由上方"冗余衰减"处理）、合计封顶 <see cref="MaxGapBonus"/>，
+    /// 避免牌组已够用时还无脑乱抓同维卡。
+    /// 需求口径（启发式，数值保守、可解释）：需求 = 幕基值 × 牌组规模缩放。
+    ///  幕基值按 CurrentActIndex：act0（第 1 幕早期）= 攻击/防御双高（开局先能活下来打死小怪）；
+    ///  act1（成长期）= 攻击 + 过牌（精英/Boss 斩杀层 + 找关键牌）；act≥2（中后段/终局）= 防御抬升 + 高攻击
+    ///  （终局重视攻击强度），回费只在成长期给少量需求（能量往往由卡自身合计隐含）。
+    ///  规模缩放 = clamp(DeckSize/12, 0.8, 1.5)：牌越多一轮能打出的量越大，需求相应抬高；小牌组不急着补位。
     /// </summary>
-    private static float DeckGapBonus(CardModel card, DeckContext context)
+    private static float DeckGapFill(CardModel card, DeckContext context)
+    {
+        // 已 ≥3 张同名：候选是"重复卡"而非补位卡——重复惩罚（−10）已覆盖其边际价值，
+        // 同一能力已在牌组超额存在，再给补位分只会把第 4/5/6 张同卡误当缺口填充（启发式防呆）。
+        if (context.CountOf(card) >= 3)
+            return 0f;
+        CardAbilityProfile profile = CardAbilityProfileReader.Of(card);
+        if (profile.IsZero)
+            return 0f; // 候选四维全 0（纯工具/状态/诅咒式卡），没有任何维度可补
+        DeckAbilityTotals totals = context.AbilityTotals; // 惰性统计一次，同一决策所有候选共享
+
+        (float needAttack, float needDefense, float needEnergy, float needDraw) = context.ActIndex switch
+        {
+            0 => (38f, 26f, 0f, 0f),
+            1 => (46f, 24f, 1f, 4f),
+            _ => (58f, 34f, 0f, 2f),
+        };
+        float scale = Math.Clamp(context.DeckSize / 12f, 0.8f, 1.5f);
+        needAttack *= scale;
+        needDefense *= scale;
+        needEnergy *= scale;
+        needDraw *= scale;
+
+        float bonus = 0f;
+        bonus += GapCover(needAttack, totals.AttackTotal, profile.Attack, AttackGapWeight);
+        bonus += GapCover(needDefense, totals.DefenseTotal, profile.Defense, DefenseGapWeight);
+        bonus += GapCover(needEnergy, totals.EnergyTotal, profile.Energy, EnergyGapWeight);
+        bonus += GapCover(needDraw, totals.DrawTotal, profile.Draw, DrawGapWeight);
+        return Math.Min(MaxGapBonus, bonus);
+    }
+
+    /// <summary>单维缺口覆盖分：缺口 = max(0, 需求 − 牌组合计)；候选补上 min(缺口, 候选值)，
+    /// 按覆盖比例（补上/缺口）× 小权重。缺口很小而候选能整口补上时给满权重（"差一口气就够"最值）。</summary>
+    private static float GapCover(float need, float deckTotal, float candidateValue, float weight)
+    {
+        if (need <= 0f || candidateValue <= 0f)
+            return 0f;
+        float deficit = Math.Max(0f, need - deckTotal);
+        if (deficit <= 0f)
+            return 0f;
+        float covered = Math.Min(deficit, candidateValue);
+        return weight * (covered / deficit);
+    }
+
+    /// <summary>
+    /// 联动互乘加成（2026-09-04 新增，放在补位分后）：候选的边际价值会被牌组已有能力放大，两条规则：
+    /// ① 施加 × 依赖：牌组 DeckVarCount("VulnerablePower") &gt; 0（已能稳定施加易伤）时，
+    ///    依赖表内候选 +5——这些卡的收益随"目标身上已有易伤"成长，先有施加源才值得拿：
+    ///    DOMINATE（主宰）：打出时先施加 Vulnerable 1，再按目标当前易伤层数给力量
+    ///      （decomp MegaCrit.Sts2.Core.Models.Cards/Dominate.cs OnPlay L40-42：PowerCmd.Apply&lt;VulnerablePower&gt;
+    ///      之后 num = target.GetPower&lt;VulnerablePower&gt;()?.Amount，再 Apply&lt;StrengthPower&gt;(num)）——
+    ///      牌组能前置易伤（如 Bash/Uppercut 先叠层）时一次可拿多力量，单张自施只有 1。
+    ///    COLOSSUS（巨像）：挂 ColossusPower，其 ModifyDamageMultiplicative 让"带易伤的攻击者"对玩家伤害 ×0.5
+    ///      （decomp MegaCrit.Sts2.Core.Models.Powers/ColossusPower.cs L27-46；卡本身 GainsBlock + Block 4，
+    ///      见 Colossus.cs L32-37）——防御收益随牌组易伤能力成长，确认后进表。
+    ///    其余依赖易伤/虚弱/摧残的卡未逐一核对机制，不收录（宁可漏判不误导）。
+    /// ② 回费 × 大费：≥3 费（非 X）攻击候选，在牌组回费能力充足（带 "Energy" 变量的卡存在，或 0 费卡 ≥3）
+    ///    时 +3——能量变量=真净产出，0 费卡多=把能量留给大牌的打法窗口大（读 lazy 统计，见
+    ///    <see cref="DeckContext.AbilityTotals"/> 与 DeckVarCount("Energy")）。
+    /// </summary>
+    private static float SynergyAmplify(CardModel card, DeckContext context)
     {
         float bonus = 0f;
-        if (context.DrawAxis == 0 && context.DeckSize >= 8
-            && (card.DynamicVars.ContainsKey(DrawVarCards) || card.DynamicVars.ContainsKey(DrawVarEnergy)))
-            bonus += 5f;
-        if (context.ActIndex >= 1
-            && context.DeckSize >= 12
-            && context.HeavyAttackCount == 0
-            && card.Type == CardType.Attack
+        if (VulnerableDependentCards.TryGetValue(card.Id.Entry, out float dependentBonus)
+            && context.DeckVarCount(VulnerableVarKey) > 0)
+            bonus += dependentBonus;
+        if (card.Type == CardType.Attack
             && !card.EnergyCost.CostsX
-            && card.EnergyCost.Canonical >= 2)
-            bonus += 5f;
+            && card.EnergyCost.Canonical >= 3)
+        {
+            DeckAbilityTotals totals = context.AbilityTotals;
+            if (context.DeckVarCount(CardAbilityProfileReader.EnergyVarKey) > 0 || totals.ZeroCostCards >= 3)
+                bonus += BigAttackEnergyBonus;
+        }
         return bonus;
     }
 
@@ -247,6 +324,26 @@ internal static class CardPickerAI
     private const string DrawVarCards = "Cards";
     private const string DrawVarEnergy = "Energy";
     private const string RepeatVarName = "Repeat";
+
+    /// <summary>易伤施加能力在牌组画像里的 DynamicVar 键（PowerVar&lt;VulnerablePower&gt; 的键 = 类型名，见 decomp PowerVar.cs / DynamicVarSet.cs）。</summary>
+    private const string VulnerableVarKey = "VulnerablePower";
+
+    /// <summary>四维补位：每维小权重与合计封顶（合计 ~0..10，封顶防乱抓）。</summary>
+    private const float AttackGapWeight = 4f;
+    private const float DefenseGapWeight = 4f;
+    private const float EnergyGapWeight = 3f;
+    private const float DrawGapWeight = 3.5f;
+    private const float MaxGapBonus = 10f;
+
+    /// <summary>联动互乘 ②：≥3 费攻击在回费充足牌组里的加成。</summary>
+    private const float BigAttackEnergyBonus = 3f;
+
+    /// <summary>联动互乘 ①：收益随"目标已带易伤"成长的候选（牌组已能稳定施加易伤时 +5）。decomp 依据见 SynergyAmplify。</summary>
+    private static readonly Dictionary<string, float> VulnerableDependentCards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["DOMINATE"] = 5f, // 主宰：按目标易伤层数给力量（Dominate.cs OnPlay L40-42）
+        ["COLOSSUS"] = 5f, // 巨像：易伤攻击者对玩家伤害 ×0.5 的防御成长（ColossusPower.cs L27-46）
+    };
 }
 
 /// <summary>当前幕 Boss 的"卡牌价值取向"分类（由 runState.Act.BossEncounter 类型映射，开局已掷定）。</summary>
@@ -359,6 +456,67 @@ internal sealed class DeckContext
 
     public int CountOf(CardModel card)
         => _cardCounts.TryGetValue(card.Id.Entry, out int count) ? count : 0;
+
+    /// <summary>牌组里带指定 DynamicVar 键（如 "VulnerablePower"/"WeakPower"/"FrailPower"/"Damage"…）的牌数，
+    /// 惰性统计并缓存：衡量"稳定施加某减益/某能力族"的体系强度（主线程调用）。</summary>
+    public int DeckVarCount(string varKey)
+    {
+        if (_deckVarCounts == null)
+        {
+            _deckVarCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (Deck != null)
+            {
+                foreach (CardModel card in Deck)
+                {
+                    foreach (KeyValuePair<string, MegaCrit.Sts2.Core.Localization.DynamicVars.DynamicVar> pair in card.DynamicVars)
+                    {
+                        _deckVarCounts.TryGetValue(pair.Key, out int priorCount);
+                        _deckVarCounts[pair.Key] = priorCount + 1;
+                    }
+                }
+            }
+        }
+        return _deckVarCounts.TryGetValue(varKey, out int count) ? count : 0;
+    }
+
+    private Dictionary<string, int>? _deckVarCounts;
+
+    /// <summary>
+    /// 牌组"四维能力"合计（攻击/防御/回费/过牌逐卡求和 + 0 费卡数），惰性统计一次并缓存：
+    /// 同一决策的所有候选（Evaluate 多次调用）共享同一份合计，避免每候选重复扫整副牌（主线程调用）。
+    /// </summary>
+    public DeckAbilityTotals AbilityTotals
+    {
+        get
+        {
+            if (_abilityTotals == null)
+            {
+                if (Deck == null)
+                {
+                    _abilityTotals = DeckAbilityTotals.Empty;
+                }
+                else
+                {
+                    float attack = 0f, defense = 0f, energy = 0f, draw = 0f;
+                    int zeroCost = 0;
+                    foreach (CardModel card in Deck)
+                    {
+                        CardAbilityProfile p = CardAbilityProfileReader.Of(card);
+                        attack += p.Attack;
+                        defense += p.Defense;
+                        energy += p.Energy;
+                        draw += p.Draw;
+                        if (!card.EnergyCost.CostsX && card.EnergyCost.Canonical == 0)
+                            zeroCost++;
+                    }
+                    _abilityTotals = new DeckAbilityTotals(attack, defense, energy, draw, zeroCost);
+                }
+            }
+            return _abilityTotals.Value;
+        }
+    }
+
+    private DeckAbilityTotals? _abilityTotals;
 
     /// <summary>牌组是否已含任一 Id.Entry（任意同名一张即可），供语义配合表查牌组构成。</summary>
     public bool ContainsAny(IEnumerable<string> entries)
