@@ -219,11 +219,13 @@ internal static class CardPickerAI
         CardAbilityProfile profile = CardAbilityProfileReader.Of(card);
         if (profile.IsZero)
             return 0f; // 候选四维全 0（纯工具/状态/诅咒式卡），没有任何维度可补
-        // 多段强度精化（用户规则）：多段(Repeat)/X 段攻击的每段都被力量放大——本职业力量易得（池内
-        // StrengthPower 产出数高于中位）则每段更值、画像攻击端按比例上调；力量稀缺职业少算。
-        // 指数来自 RoleStatusAccess 的运行时真实池枚举（非拍脑袋）；墨灵每段减免已由 BossAdjust 覆盖，不在此重复。
+        // 多段强度精化（用户规则 v2/v3）：多段(Repeat)/X 段攻击每段都被力量（加法）与易伤（对 powered
+        // 段 ×1.5，见 RoleStatusAccess 文档机制事实 ①②③⑦⑧⑨）放大——本职业这两类产出越易得（池内
+        // StrengthPower+VulnerablePower 去重卡数高于中位）每段越值、攻击端画像按比例上调；稀缺职业少算。
+        // 指数来自 RoleStatusAccess 的运行时真实池枚举（非拍脑袋，每进程 ROLE_STATUS_ACCESS 日志）；
+        // 墨灵(Vantom)每段减免已由 BossAdjust 覆盖，不在此重复。
         if (profile.Attack > 0f && (card.DynamicVars.ContainsKey(RepeatVarName) || card.EnergyCost.CostsX))
-            profile = profile with { Attack = profile.Attack * RoleStatusAccess.MultiHitStrengthScale(context.ReceivingRole) };
+            profile = profile with { Attack = profile.Attack * RoleStatusAccess.MultiHitScale(context.ReceivingRole) };
         DeckAbilityTotals totals = context.AbilityTotals; // 惰性统计一次，同一决策所有候选共享
 
         (float needAttack, float needDefense, float needEnergy, float needDraw) = context.ActIndex switch
@@ -262,15 +264,21 @@ internal static class CardPickerAI
     /// <summary>
     /// 联动互乘加成（2026-09-04 新增，放在补位分后）：候选的边际价值会被牌组已有能力放大，两条规则：
     /// ① 施加 × 依赖：牌组 DeckVarCount("VulnerablePower") &gt; 0（已能稳定施加易伤）时，
-    ///    依赖表内候选 +5——这些卡的收益随"目标身上已有易伤"成长，先有施加源才值得拿：
-    ///    DOMINATE（主宰）：打出时先施加 Vulnerable 1，再按目标当前易伤层数给力量
-    ///      （decomp MegaCrit.Sts2.Core.Models.Cards/Dominate.cs OnPlay L40-42：PowerCmd.Apply&lt;VulnerablePower&gt;
-    ///      之后 num = target.GetPower&lt;VulnerablePower&gt;()?.Amount，再 Apply&lt;StrengthPower&gt;(num)）——
-    ///      牌组能前置易伤（如 Bash/Uppercut 先叠层）时一次可拿多力量，单张自施只有 1。
-    ///    COLOSSUS（巨像）：挂 ColossusPower，其 ModifyDamageMultiplicative 让"带易伤的攻击者"对玩家伤害 ×0.5
-    ///      （decomp MegaCrit.Sts2.Core.Models.Powers/ColossusPower.cs L27-46；卡本身 GainsBlock + Block 4，
-    ///      见 Colossus.cs L32-37）——防御收益随牌组易伤能力成长，确认后进表。
+    ///    依赖表内候选 +5（按本职业 VulnerablePower 产出指数缩放，见 RoleStatusAccess）——这些卡的
+    ///    收益随"目标身上已有易伤"成长，先有施加源才值得拿。机制铁证（第二份取证报告 + decomp）：
+    ///    DOMINATE（主宰，Ironclad 1 费 Rare Exhaust）：先施 Vulnerable 1（升级 2，Dominate.cs OnUpgrade
+    ///      L46-48），再按目标"施放后总易伤层数 V"给 Owner 常驻 Strength V（Dominate.cs OnPlay L40-42：
+    ///      PowerCmd.Apply&lt;VulnerablePower&gt; 之后 num = target.GetPower&lt;VulnerablePower&gt;().Amount，
+    ///      再 Apply&lt;StrengthPower&gt;(num)）——易伤放大器随既有层数递增，前置叠层（Bash/Uppercut 先上
+    ///      2 层再主宰）一次可拿更多力量，单张自施只有 1。
+    ///    COLOSSUS（巨像，Ironclad 1 费技能）：+Block 4（升级 7，Colossus.cs L27-37）+ ColossusPower 1 层
+    ///      （每敌方半回合末 -1，ColossusPower.cs AfterSideTurnEnd L48-54）；其 ModifyDamageMultiplicative
+    ///      让"带易伤的 powered 攻击者"对 Owner 的伤害 ×0.5（ColossusPower.cs L27-46）——敌方易伤在防御端
+    ///      双重变现，防御收益随牌组易伤能力成长，确认后进表。
     ///    其余依赖易伤/虚弱/摧残的卡未逐一核对机制，不收录（宁可漏判不误导）。
+    ///    乘算门槛（取证报告 ①）：以上所有 ×0.75/×1.5/×0.5 只作用于 powered（吃力量/敏捷的）伤害/格挡，
+    ///    毒、球、不具名伤害不吃（WeakPower.cs/VulnerablePower.cs/FrailPower.cs 各自 Modify*Multiplicative
+    ///    先判 IsPowered 返回 1）。
     /// ② 回费 × 大费：≥3 费（非 X）攻击候选，在牌组回费能力充足（带 "Energy" 变量的卡存在，或 0 费卡 ≥3）
     ///    时 +3——能量变量=真净产出，0 费卡多=把能量留给大牌的打法窗口大（读 lazy 统计，见
     ///    <see cref="DeckContext.AbilityTotals"/> 与 DeckVarCount("Energy")）。
@@ -280,7 +288,7 @@ internal static class CardPickerAI
         float bonus = 0f;
         if (VulnerableDependentCards.TryGetValue(card.Id.Entry, out float dependentBonus)
             && context.DeckVarCount(VulnerableVarKey) > 0)
-            // 多段强度精化：易伤依赖卡按本职业 VulnerablePower 产出指数放大（前置易伤源在本职业
+            // 联动精化：易伤依赖卡按本职业 VulnerablePower 产出指数放大（前置易伤源在本职业
             // 牌池的可得性——牌组已实际施加易伤时仍按此加权，指数来自 RoleStatusAccess 真实池枚举）。
             bonus += dependentBonus * RoleStatusAccess.VulnerableDependentScale(context.ReceivingRole);
         if (card.Type == CardType.Attack
@@ -345,11 +353,13 @@ internal static class CardPickerAI
     /// <summary>联动互乘 ②：≥3 费攻击在回费充足牌组里的加成。</summary>
     private const float BigAttackEnergyBonus = 3f;
 
-    /// <summary>联动互乘 ①：收益随"目标已带易伤"成长的候选（牌组已能稳定施加易伤时 +5）。decomp 依据见 SynergyAmplify。</summary>
+    /// <summary>联动互乘 ①：收益随"目标已带易伤"成长的候选（牌组已能稳定施加易伤时 +5，按职业
+    /// VulnerablePower 产出指数缩放）。decomp 机制依据见 SynergyAmplify 文档（Dominate.cs OnPlay L40-42 /
+    /// Colossus.cs L27-37 / ColossusPower.cs L27-46）。</summary>
     private static readonly Dictionary<string, float> VulnerableDependentCards = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["DOMINATE"] = 5f, // 主宰：按目标易伤层数给力量（Dominate.cs OnPlay L40-42）
-        ["COLOSSUS"] = 5f, // 巨像：易伤攻击者对玩家伤害 ×0.5 的防御成长（ColossusPower.cs L27-46）
+        ["DOMINATE"] = 5f, // 主宰：按目标施放后总易伤层数给常驻力量（易伤放大器，Dominate.cs L40-42、OnUpgrade L46-48）
+        ["COLOSSUS"] = 5f, // 巨像：带易伤的 powered 攻击者对 Owner ×0.5 的防御成长（ColossusPower.cs L27-46）
     };
 }
 
