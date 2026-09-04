@@ -14,7 +14,7 @@ namespace CombatSolver.Run;
 internal sealed class NCardRewardScreenPatch : IPatchMethod
 {
     public static string PatchId => "run_ai_card_reward_selection";
-    public static string Description => "全自动跑局：战后卡牌奖励自动选牌/跳过";
+    public static string Description => "AI自动跑局：战后卡牌奖励自动选牌/跳过";
 
     public static ModPatchTarget[] GetTargets() =>
     [
@@ -28,3 +28,4 @@ internal sealed class NCardRewardScreenPatch : IPatchMethod
     public static void Postfix(NCardRewardSelectionScreen? __result)
         => CardRewardDriver.OnCardRewardScreenShown(__result);
 }
+

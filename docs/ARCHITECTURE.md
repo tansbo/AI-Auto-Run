@@ -130,7 +130,7 @@ renderer 不得重新读取 `SolverResult`、`PlanAction`、`PlanCardChoice` 或
 
 `SolverSettingsPanel.BugReports` 持有问题包导出/上传的单实例 UI 生命周期、取消令牌、进度条和线程安全完成邮箱，并把文件发送和服务端确认显示为两个阶段。后台任务只向完成邮箱发布一次 `Succeeded / Canceled / Failed`；面板自己的 `_Process` 每帧先消费终态，再处理字节进度或取消等待，并在同一次终态消费中释放令牌、收起进度条、替换状态消息和恢复按钮。上传生命周期不依赖搜索使用的 `SolverDispatcher`。`CombatBugReportUploader` 不持有 Godot 控件，后台传输只通过 `IProgress<CombatBugReportUploadProgress>` 发布字节计数。进度到达文件总字节数只代表请求正文已经写出，只有服务端回执同时确认反馈编号和实收字节数才算上传成功。
 
-## 7. Run AI（全自动跑局子系统）
+## 7. Run AI（AI自动跑局子系统）
 
 `src/Run/` 是一个独立的跑局级编排子系统，全部由设置项 `RunAutoEnabled` 门控，仅单人跑局生效。它**不**参与战斗内搜索与模拟，只接管战斗之间（奖励/地图/非战斗房）的 UI 驱动。战斗内仍由战斗求解器全自动接管。
 
@@ -148,7 +148,7 @@ RitsuLib 跑局事件（RunStarted/RoomEntered/CombatVictory/...）
 | `src/Run/RunAutoController.cs` | 订阅 RitsuLib 跑局事件、维护 `RunAutoSession` 阶段机、按 `RoomType` 分派到各驱动；开启时接管原版 FastMode | 战斗搜索、卡牌/遗物评分 |
 | `src/Run/RunAutoSession.cs` | 跑局级状态（当前房型/阶段/已选卡牌/最近决策）与跑局级取消令牌（RunEnded 时取消） | 驱动逻辑 |
 | `src/Run/RunAutoSettings.cs` | 读取持久化在 `SolverSettingsData` 的 Run AI 设置，及四个开关的 setter | 设置 UI 与持久化本身 |
-| `src/Run/RunAutoSettingsPage.cs` | 在 RitsuLib 模组设置中注册"全自动跑局"四个开关（主菜单可访问），绑定读写 `SolverSettingsData` | 持久化与决策 |
+| `src/Run/RunAutoSettingsPage.cs` | 在 RitsuLib 模组设置中注册"AI自动跑局"四个开关（主菜单可访问），绑定读写 `SolverSettingsData` | 持久化与决策 |
 | `src/Run/RunUiHelper.cs` | 移植 AutoSlay 的点击/查找/等待配方（`ForceClick`、递归 `FindAll<T>`、超时轮询） | 决策逻辑 |
 | `src/Run/CardPickerAI.cs` | 战后卡牌结构评分（稀有度+费用效率+牌组契合+关键词+精选表），返回选/跳过 | UI 驱动 |
 | `src/Run/RelicPickerAI.cs` | 遗物结构评分（稀有度+精选表）；先古遗物按运行时类名识别诅咒并选最优正向，返回选/跳过 | UI 驱动 |
@@ -191,3 +191,4 @@ RitsuLib 跑局事件（RunStarted/RoomEntered/CombatVictory/...）
 - `tools/verify-refactor-boundaries.ps1` / `tools/verify-refactor-boundaries.sh`：Windows / Linux 的等价门禁，阻止 Search 全局依赖、旧 controller 字段、worker live 回读、Beam 职责回流、unattended 编排回流、UI mutable 类型回流和 registry 私有反射；规则变化时必须同步维护两端。
 
 纯职责移动至少运行 Release 编译与当前平台的结构门禁。改变语义、搜索或显示行为时，再按影响面选择严格差分、完整 headless、CoverageCatalog 或可见 Steam。
+

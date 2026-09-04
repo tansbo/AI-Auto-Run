@@ -14,7 +14,7 @@ namespace CombatSolver.Run;
 internal sealed class NMapScreenPatch : IPatchMethod
 {
     public static string PatchId => "run_ai_map_screen";
-    public static string Description => "全自动跑局：地图打开时自动选路";
+    public static string Description => "AI自动跑局：地图打开时自动选路";
 
     public static ModPatchTarget[] GetTargets() =>
     [
@@ -32,3 +32,4 @@ internal sealed class NMapScreenPatch : IPatchMethod
         MapRouter.RequestRoute();
     }
 }
+

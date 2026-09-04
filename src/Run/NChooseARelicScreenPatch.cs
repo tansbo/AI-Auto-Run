@@ -13,7 +13,7 @@ namespace CombatSolver.Run;
 internal sealed class NChooseARelicScreenPatch : IPatchMethod
 {
     public static string PatchId => "run_ai_choose_relic_selection";
-    public static string Description => "全自动跑局：遗物选择自动选取/跳过";
+    public static string Description => "AI自动跑局：遗物选择自动选取/跳过";
 
     public static ModPatchTarget[] GetTargets() =>
     [
@@ -27,3 +27,4 @@ internal sealed class NChooseARelicScreenPatch : IPatchMethod
     public static void Postfix(NChooseARelicSelection? __result)
         => RelicRewardDriver.OnChooseARelicScreenShown(__result);
 }
+

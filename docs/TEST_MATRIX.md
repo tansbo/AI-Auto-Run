@@ -6,7 +6,7 @@
 
 维护时默认使用分层快速回归：普通语义改动跑单效果严格差分；Fork、跨回合历史和续用改动补一个最小两回合或最早复用边界；搜索/部署改动的最终候选才运行必要的完整自动场。快速 unattended 请求总超时不超过 `120` 秒，超时后缩小 fixture 或记为未验证，不在同一轮延长等待。下方完整矩阵是发布门禁和专项审计入口，不是每次修复都要执行的默认清单。
 
-## Run AI：全自动跑局子系统（未发布，开发中）
+## Run AI：AI自动跑局子系统（未发布，开发中）
 
 > 该子系统不改变任何战斗求解行为，全部逻辑由设置项 `RunAutoEnabled` 门控（默认关闭）。以下条目记录开发批次的构建/结构门禁与尚未完成的实机冒烟。
 
@@ -28,13 +28,13 @@
 | SELF_HELP_BOOK 附魔选牌卡死 | 已修复（实机冒烟发现） | 实机冒烟 NECROBINDER 第 6 层 SELF_HELP_BOOK"读下封底"后卡死（`事件处理超时：事件覆盖层未关闭`）。根因：事件打开 `NDeckEnchantSelectScreen`（附魔选牌屏）不在 `EventOverlayDriver` 覆盖层清单；已新增驱动分支（点牌 → 等单牌附魔预览 → 点预览 Confirm）。headless 隔离重放同种子未复现同一事件（种子未跨环境互现），但全程无卡死直达 Act1 Boss，无回归；待下一次实机复测确认该事件路径。 | 2026-09-02 |
 | 宝箱房开箱为空/NRE | 已修复（实机冒烟+诊断插桩定位） | 实机冒烟宝箱房卡死：`NullReferenceException at DoExtraRewardsIfNeeded`；跳过补丁后不崩但开箱为空。诊断插桩定位真正根因是**竞态**——`EnterInternal` 在 `AfterRoomEntered`（触发驱动）之后才 `BeginRelicPicking`，驱动开箱太早导致 `OpenChest` 跑在遗物生成前（NRE + `InitializeRelics` 读到 null → 空宝箱）。修复：开箱前等 `CurrentRelics != null`；撤销跳过补丁（竞态修复后 NRE 不再出现，headless 早期 NRE 同一根因）。可见实机验证：`BeginRelicPicking [ANCHOR]` → 开箱 → `modelReady=True` → **`宝箱遗物：ANCHOR` 拾取成功**，全程无 NRE。 | 2026-09-02 |
 | FakeMerchant 假商人卡死 | 已修复（可见整局闭环验证） | Act2 FakeMerchant（自定义布局事件，无选项按钮、用 `NProceedButton` 离开）卡死：驱动不认识 → 45s 超时放弃。修复：`EventDriver` 新增 FakeMerchant 分支（点离开 → 等地图 → 请求选路，照 AutoSlay 配方）；`MapRouter` 增加 60s 强制复位 + 去重延迟重试（诊断发现上一轮路由在 FakeMerchant 房进入后永不结束、把开图路由永久去重）。**完整可见整局**（NECROBINDER `4634LZP01FBE`）Neow → **Act3** 阵亡：`rooms_handled=48 actReached=3`，宝箱拾取 ×2、FakeMerchant 离开、Act1 Boss、精英/事件/篝火/商店全自动通过，`FULL_RUN PASSED`（1247s）。 | 2026-09-02 |
-| 实机冒烟（待做） | 待用户复测 | 用户开启"全自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。已修复 SELF_HELP_BOOK/宝箱房竞态/FakeMerchant/路由去重（见上几行）；自动整局已跑到 Act3 阵亡无卡死，用户仍可自行实机确认观感（Neow 先古遗物提示、地图选路动画等）。 | — |
+| 实机冒烟（待做） | 待用户复测 | 用户开启"AI自动跑局"进入单人局，观察自动选牌/前进/战斗循环至少到 Act1 Boss。已修复 SELF_HELP_BOOK/宝箱房竞态/FakeMerchant/路由去重（见上几行）；自动整局已跑到 Act3 阵亡无卡死，用户仍可自行实机确认观感（Neow 先古遗物提示、地图选路动画等）。 | — |
 | 多种子可见整局回归（`run-visible-regression.ps1`，新决策 DLL） | 通过（5/5 种子，无死路） | IRONCLAD/COMBATSOLVER 48 层 Act3、NECROBINDER/4634LZP01FBE 33 层 Act2、SILENT/SILENTSEED 43 层 Act3、DEFECT/DEFECTSEED 33 层 Act2（首次 NO-RESULT 为 Steam 重连冷却抖动，复跑 Passed）、REGENT/REGENTSEED 42 层 Act3；全部 `FULL_RUN PASSED`、胜利 false（正常阵亡非放弃）、无卡死。**本批发现并修复 4 个实机死路**：FIELD_OF_MAN_SIZED_HOLES 多选移除（选满才可确认）、水晶球揭示屏不认识、水晶球选格收益最大化（3×3 新迷雾覆盖最多）、篝火回血附赠奖励屏未排空（逐层排空覆盖层再等 Proceed）。含药水槽位管理/幕末篝火 Boss 风险决策 DLL；MapRouter 危险度规划与战士回血特质、事件价值层在同 DLL 中（战士特质行为待一局 IRONCLAD 实机确认）。 | 2026-09-02 |
 
 #### 实机冒烟操作清单（Run AI，2026-09-02 补充）
 
 1. 确认当前开发版 DLL 已部署到 `mods/CombatSolver/`（`dotnet build -c Release` 后自动复制）。
-2. 启动 Steam《杀戮尖塔 2》，主菜单 → 设置 → 模组设置 → 战斗路线求解器，打开 **全自动跑局**（建议同时开快速模式；"失败后停止"可关，便于观察自然阵亡流程）。
+2. 启动 Steam《杀戮尖塔 2》，主菜单 → 设置 → 模组设置 → 战斗路线求解器，打开 **AI自动跑局**（建议同时开快速模式；"失败后停止"可关，便于观察自然阵亡流程）。
 3. 开始单人铁甲战士跑局（任意种子），依次核对：
    - 开局先古遗物自动选正向、不选诅咒（底部应出现"事件：neow → 遗物名（评分 N）"提示）；
    - 地图自动选路并前进（不白等、无 30s 超时噪音）；
@@ -1262,3 +1262,4 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 - “通过”必须有同一 `runId` 的 `Passed` 结果，并核对对应 `SEARCH_REQUEST`、`RESULT`、`ACTION`、`DEPLOY_*` 和真实怪物行动日志。
 - 只编译通过、只看到最终胜利或只看模拟结果都不能标记为通过。
 - `RID/resources still in use at exit` 当前记录为 Godot 退出噪音；任何 `CombatSolver/Unattended FAILED`、`SEARCH_FAILURE`、`DEPLOY_FAILURE` 或状态断言失败均判定场景失败。
+

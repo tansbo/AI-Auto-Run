@@ -70,7 +70,7 @@ internal static class RunAutoOverlay
         };
         string? decision = session.LastDecision;
         string decisionText = string.IsNullOrEmpty(decision) ? "" : $"｜{decision}";
-        return $"全自动跑局｜{act}{floorText}｜{phase}{decisionText}";
+        return $"AI自动跑局｜{act}{floorText}｜{phase}{decisionText}";
     }
 
     private static void EnsureCreated(Node host)
@@ -121,3 +121,4 @@ internal static class RunAutoOverlay
         _panel.OffsetBottom = viewportSize.Y - 12f;
     }
 }
+

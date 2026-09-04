@@ -5,7 +5,7 @@ using STS2RitsuLib.Utils.Persistence;
 namespace CombatSolver.Run;
 
 /// <summary>
-/// 在 RitsuLib 模组设置（系统设置 → 模组设置 → 战斗路线求解器）中注册"全自动跑局"设置页。
+/// 在 RitsuLib 模组设置（系统设置 → 模组设置 → AI自动跑局）中注册"AI自动跑局"设置页。
 /// 主菜单即可访问，不需要进入战斗。绑定直接读写 <see cref="SolverSettingsData"/>，
 /// 不复制第二份持久化：Write 时立即走 SolverSettings.Update 落盘，因此 Save() 为空实现。
 /// </summary>
@@ -18,10 +18,10 @@ internal static class RunAutoSettingsPage
             page.WithModDisplayName(ModSettingsText.Literal("AI自动跑局"));
             page.AddSection("run_ai", section =>
             {
-                section.WithTitle(ModSettingsText.Literal("全自动跑局"));
+                section.WithTitle(ModSettingsText.Literal("AI自动跑局"));
                 section.AddToggle(
                     "run_auto_enabled",
-                    ModSettingsText.Literal("启用全自动跑局"),
+                    ModSettingsText.Literal("启用AI自动跑局"),
                     new SolverBoolBinding("run_auto_enabled", () => RunAutoSettings.Enabled, v => RunAutoSettings.SetEnabled(v)),
                     ModSettingsText.Literal("主菜单即可开启。开启后单人跑局从开局先古遗物到结局全自动：自动选牌、选路线、选遗物、商店、事件与战斗。"));
                 section.AddToggle(
@@ -119,3 +119,5 @@ internal static class RunAutoSettingsPage
         public void Save() { }
     }
 }
+
+
