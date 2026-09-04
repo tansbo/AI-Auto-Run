@@ -46,6 +46,8 @@ foreach ($ch in $characters) {
   {"kind":"Relic","optionIds":["RUNIC_PYRAMID"],"expectedScore":21},
   {"kind":"AncientRelic","optionIds":["CURSED_PEARL","GOLDEN_PEARL"],"expectedPickId":"CURSED_PEARL"},
   {"kind":"AncientRelic","optionIds":["NEOWS_BONES","GOLDEN_PEARL"],"expectedPickId":"GOLDEN_PEARL"},
+  {"kind":"AncientRelic","optionIds":["KALEIDOSCOPE","GOLDEN_PEARL","ARCANE_SCROLL"],"expectedPickId":"KALEIDOSCOPE"},
+  {"kind":"AncientRelic","optionIds":["SEA_GLASS","PRISMATIC_GEM","TOUCH_OF_OROBAS"],"expectedPickId":"SEA_GLASS"},
   {"kind":"Card","optionIds":["CONFLAGRATION"],"actIndexForTest":1,"expectedScore":$($ch.Act1Conf)},
   {"kind":"Card","optionIds":["$strike"],"actIndexForTest":1,"expectedScore":$($ch.Act1Strike)},
   {"kind":"Card","optionIds":["GRAND_FINALE"],"deckCardIds":["STAMPEDE"],"expectedScore":$($ch.ComboFinale)}

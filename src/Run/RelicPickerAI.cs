@@ -60,9 +60,9 @@ internal static class RelicPickerAI
     {
         [nameof(GoldenPearl)] = 5f,
         [nameof(ArcaneScroll)] = 5f,
+        [nameof(Kaleidoscope)] = 7f,
         [nameof(PhialHolster)] = 4f,
         [nameof(LostCoffer)] = 4f,
-        [nameof(Kaleidoscope)] = 4f,
         [nameof(BoomingConch)] = 3f,
         [nameof(FishingRod)] = 3f,
         [nameof(PreciseScissors)] = 3f,
@@ -124,10 +124,10 @@ internal static class RelicPickerAI
         [nameof(CallingBell)] = 7f, [nameof(EmptyCage)] = 4f, [nameof(PandorasBox)] = 7f,
         [nameof(RunicPyramid)] = 8f, [nameof(SneckoEye)] = 7f, [nameof(Ectoplasm)] = 5f,
         [nameof(Sozu)] = 6f,
-        // Orobas
+        // Orobas（海玻璃=15 张他职业牌择优入组，接跨职业评分后价值最高档；棱彩=+1能量+后续全职业奖励池）
         [nameof(ElectricShrymp)] = 3f, [nameof(GlassEye)] = 6f, [nameof(AlchemicalCoffer)] = 6f,
         [nameof(Driftwood)] = 3f, [nameof(RadiantPearl)] = 7f, [nameof(SandCastle)] = 5f,
-        [nameof(SeaGlass)] = 4f, [nameof(PrismaticGem)] = 6f, [nameof(TouchOfOrobas)] = 6f,
+        [nameof(SeaGlass)] = 9f, [nameof(PrismaticGem)] = 8f, [nameof(TouchOfOrobas)] = 7f,
         [nameof(ArchaicTooth)] = 5f,
         // Tezcatara
         [nameof(NutritiousSoup)] = 5f, [nameof(VeryHotCocoa)] = 6f, [nameof(YummyCookie)] = 5f,
