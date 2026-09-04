@@ -12,7 +12,7 @@
 
 ## Run AI：AI自动跑局子系统（未发布，开发中）
 
-> **产品命名（2026-09-03，用户决定）**：本子系统产品名定为 **「AI自动跑局」**。与上游项目区分：Torch1230 的 CombatSolver（仓库 https://github.com/Torch1230/CombatSolver ）实现**局内战斗求解**（Combat Solver）；本系统功能不同——**整局自动游玩 + 跑局决策价值层**（自动选路/事件/药水/金币/篝火/遗物/抓牌决策，战斗内部调用局内求解）。内部代码命名空间/模块名（CombatSolver/RunAuto）、mod 目录与协议字段维持技术名不变，仅产品/对外名用「AI自动跑局」。
+> **产品命名（2026-09-03，用户决定）**：产品名定为 **「AI自动跑局 / AI Auto-Run」**。本仓库继承自 Torch1230 的 CombatSolver（https://github.com/Torch1230/CombatSolver，实现**局内战斗求解**），在其上构建新项目——**整局自动游玩 + 跑局决策价值层**（自动选路/事件/药水/金币/篝火/遗物/抓牌决策，战斗内部调用局内求解）。内部代码命名空间/模块名（CombatSolver/RunAuto）、mod 目录与协议字段维持技术名不变，仅产品/对外名用「AI自动跑局」；README 与文档已改为新项目身份。
 
 > 全部由设置项 `RunAutoEnabled`（AI自动跑局）门控，仅在单人跑局生效。战斗内仍走 Combat Solver 全自动；战斗间由 `src/Run/` 各驱动接管，直到 `RunEndedEvent`。
 

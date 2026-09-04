@@ -1,4 +1,12 @@
-# 战斗路线求解器 / Combat Solver
+# AI自动跑局 / AI Auto-Run（基于 Combat Solver）
+
+> **项目身份（2026-09-03）**：本仓库继承自 [Combat Solver](https://github.com/Torch1230/CombatSolver)（战斗路线求解器，作者 Torch），在其上构建了**新项目「AI自动跑局 / AI Auto-Run」**：除局内求解外，还能**自动完成整局**——地图选路、事件、药水、金币、篝火、遗物、抓牌等跑局决策全部由 AI 自动执行。战斗内沿用 Combat Solver 局内异步求解作为核心；技术标识（命名空间、mod id、目录、协议字段）维持 `CombatSolver` 不变，产品与对外名称为「AI自动跑局 / AI Auto-Run」。
+>
+> 本页下方为继承自 Combat Solver 的局内求解功能说明（原「战斗路线求解器」文档）；AI自动跑局的跑局功能、决策日志与测试证据见 `docs/TEST_MATRIX.md`、`docs/DEVELOPMENT_NOTES.md` 与 `docs/ARCHITECTURE.md` 的 Run AI 章节。
+
+---
+
+# 战斗路线求解器 / Combat Solver（局内求解引擎，上游继承）
 
 Combat Solver 是一个面向《杀戮尖塔 2》单人模式的战斗路线求解器。进入战斗后，它会在后台模拟当前手牌、牌堆、敌人行动、药水、遗物、选牌和跨回合状态，并在预算范围内给出推荐路线、预计战损与关键行动。
 
