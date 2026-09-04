@@ -138,4 +138,26 @@ internal static class RunTelemetry
             return "empty";
         return new string(seed.Where(static c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray());
     }
+
+    /// <summary>
+    /// 遥测自动上传（opt-in，见 RunAutoSettings.TelemetryUploadEnabled/Url）：
+    /// 把刚落盘的匿名对局遥测 JSON POST 到收集端点。只含对局统计；失败仅记日志不上报。
+    /// </summary>
+    public static async Task UploadAsync(string filePath, string url)
+    {
+        try
+        {
+            using var client = new System.Net.Http.HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            using var content = new System.Net.Http.StringContent(
+                File.ReadAllText(filePath), System.Text.Encoding.UTF8, "application/json");
+            using System.Net.Http.HttpResponseMessage response = await client.PostAsync(url, content).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                Entry.Logger.Warn($"[RunAuto] 遥测上传失败 status={(int)response.StatusCode} url={url}");
+        }
+        catch (Exception ex)
+        {
+            Entry.Logger.Warn($"[RunAuto] 遥测上传异常：{ex.Message}");
+        }
+    }
 }

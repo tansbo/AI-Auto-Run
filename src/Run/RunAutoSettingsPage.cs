@@ -58,6 +58,18 @@ internal static class RunAutoSettingsPage
                     ModSettingsText.Literal("记录对局遥测"),
                     new SolverBoolBinding("run_auto_telemetry_enabled", () => RunAutoSettings.TelemetryEnabled, v => RunAutoSettings.SetTelemetryEnabled(v)),
                     ModSettingsText.Literal("每局写 JSON 到 user://run_telemetry/：种子、抓牌决策、结局，供离线聚合卡牌胜率差。"));
+                section.AddToggle(
+                    "run_auto_telemetry_upload",
+                    ModSettingsText.Literal("自动上传对局遥测（opt-in）"),
+                    new SolverBoolBinding("run_auto_telemetry_upload", () => RunAutoSettings.TelemetryUploadEnabled, v => RunAutoSettings.SetTelemetryUploadEnabled(v)),
+                    ModSettingsText.Literal("同意把匿名对局统计（种子/角色/难度/层数/抓牌/遗物/胜负，不含个人身份或本地路径）上传到下方端点，用于改进 AI 决策。可随时关闭。"));
+                section.AddString(
+                    "run_auto_telemetry_url",
+                    ModSettingsText.Literal("遥测上传端点"),
+                    new SolverStringBinding("run_auto_telemetry_url", () => RunAutoSettings.TelemetryUploadUrl, v => RunAutoSettings.SetTelemetryUploadUrl(v)),
+                    ModSettingsText.Literal("例如 https://your-host/telemetry（接收端示例见 tools/telemetry_receiver.py）。留空不上传。"),
+                    128,
+                    ModSettingsText.Literal("每个跑局结束后自动 POST 本局匿名遥测 JSON。"));
             });
         });
     }

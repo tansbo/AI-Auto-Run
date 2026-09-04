@@ -131,6 +131,13 @@ internal static class RunAutoController
             $"[RunAuto] TELEMETRY_WRITTEN path={path} seed={telemetry.Seed} " +
             $"victory={telemetry.Victory} floors={telemetry.Floors} picks={telemetry.Picks.Count} " +
             $"relic_picks={telemetry.RelicPicks.Count}");
+
+        // 自动上传（opt-in）：开启并填 URL 后异步 POST，不阻塞跑局收尾。
+        string url = RunAutoSettings.TelemetryUploadUrl;
+        if (RunAutoSettings.TelemetryUploadEnabled && !string.IsNullOrWhiteSpace(url))
+        {
+            TaskHelper.RunSafely(RunTelemetry.UploadAsync(path, url));
+        }
     }
 
     private static void OnRoomEntered(RoomEnteredEvent evt)

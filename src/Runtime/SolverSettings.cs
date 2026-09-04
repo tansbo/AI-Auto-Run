@@ -93,6 +93,9 @@ internal sealed record SolverSettingsData
     public string? RunAutoSeedOverride { get; init; }
     public string RunAutoForcedPicks { get; init; } = string.Empty;
     public bool RunAutoTelemetryEnabled { get; init; }
+    // 遥测自动上传（opt-in）：开启并填收集端点后，每局跑完自动 POST 匿名对局遥测。
+    public bool RunAutoTelemetryUpload { get; init; }
+    public string? RunAutoTelemetryUrl { get; init; }
 }
 
 internal sealed record SolverSettingsSnapshot(

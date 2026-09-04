@@ -80,6 +80,31 @@ internal static class RunAutoSettings
             SolverSettings.ApplyForTesting(data);
     }
 
+    public static bool TelemetryUploadEnabled => SolverSettings.Current.RunAutoTelemetryUpload;
+
+    public static string TelemetryUploadUrl => SolverSettings.Current.RunAutoTelemetryUrl ?? string.Empty;
+
+    public static void SetTelemetryUploadEnabled(bool value, bool persist = true)
+    {
+        SolverSettingsData data = SolverSettings.Current with { RunAutoTelemetryUpload = value };
+        if (persist)
+            SolverSettings.Update(data);
+        else
+            SolverSettings.ApplyForTesting(data);
+    }
+
+    public static void SetTelemetryUploadUrl(string value, bool persist = true)
+    {
+        SolverSettingsData data = SolverSettings.Current with
+        {
+            RunAutoTelemetryUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim(),
+        };
+        if (persist)
+            SolverSettings.Update(data);
+        else
+            SolverSettings.ApplyForTesting(data);
+    }
+
     public static void SetEnabled(bool enabled, bool persist = true)
     {
         SolverSettingsData data = SolverSettings.Current with { RunAutoEnabled = enabled };
