@@ -39,7 +39,9 @@ AI Auto-Run（AI自动跑局）基于 Combat Solver 构建，战斗内求解引�
 - Project: Combat Solver（战斗路线求解器 / Combat Solver）
 - Author and copyright holder: Torch
 - GitHub: https://github.com/Torch1230/CombatSolver
+- Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3790899961
 
 ### Permission Grant
 
 On 2026-09-04, Torch granted permission for use with attribution: 二次传播或之后发布公开内容时，须注明来源，并提及 Combat Solver 与 Random Foreseer 的仓库链接。本文件随每个二进制分发提供，记录该许可与来源关系。
+

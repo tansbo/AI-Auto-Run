@@ -134,6 +134,7 @@ Windows 和 Linux 的无人测试入口分别为 `tools/run-unattended-test.ps1`
 
 - **Combat Solver**（局内战斗求解引擎，作者 Torch）——本仓库的继承基础与战斗内求解核心。
   - GitHub：https://github.com/Torch1230/CombatSolver
+  - Steam 创意工坊：https://steamcommunity.com/sharedfiles/filedetails/?id=3790899961
   - 作者（Torch）2026-09-04 明确同意本项目在注明来源与链接的前提下使用/二次传播。
 - **Random Foreseer**（战斗模拟核心来源，作者 hotwords123，已获书面许可）。
   - GitHub：https://github.com/hotwords123/StS2.RandomForeseer
