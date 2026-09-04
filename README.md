@@ -130,14 +130,17 @@ Windows 和 Linux 的无人测试入口分别为 `tools/run-unattended-test.ps1`
 
 ## 开源、许可与代码来源
 
-Combat Solver 的内置战斗模拟核心使用并改造了 Random Foreseer 的部分实现，现已获得原作者 **hotwords123** 的许可。
+本项目（AI自动跑局 / AI Auto-Run）基于以下项目构建，二次传播或公开发布时必须注明来源并附上各仓库/创意工坊链接（作者已许可，条件即来源标注）：
 
-相关来源关系持续存在于当前版本，涉及战斗状态、牌堆、RNG、Fork、History 与 Mirror 等基础逻辑。Combat Solver 在此基础上持续重构并扩展了跨回合搜索、路线复用、自动执行、原生选牌流程和性能控制。Combat Solver 不加载或分发 Random Foreseer 程序集作为运行时依赖；运行时分离不改变上述代码来源关系。
+- **Combat Solver**（局内战斗求解引擎，作者 Torch）——本仓库的继承基础与战斗内求解核心。
+  - GitHub：https://github.com/Torch1230/CombatSolver
+  - 作者（Torch）2026-09-04 明确同意本项目在注明来源与链接的前提下使用/二次传播。
+- **Random Foreseer**（战斗模拟核心来源，作者 hotwords123，已获书面许可）。
+  - GitHub：https://github.com/hotwords123/StS2.RandomForeseer
+  - Steam 创意工坊：https://steamcommunity.com/sharedfiles/filedetails/?id=3747531952
 
-- [Random Foreseer GitHub 仓库](https://github.com/hotwords123/StS2.RandomForeseer)
-- [Random Foreseer 创意工坊页面](https://steamcommunity.com/sharedfiles/filedetails/?id=3747531952)
-- [Combat Solver GitHub 仓库](https://github.com/Torch1230/CombatSolver)
+来源关系：本项目的内置战斗模拟核心使用并改造了 Random Foreseer 的部分实现（战斗状态、牌堆、RNG、Fork、History 与 Mirror 等基础逻辑）；AI自动跑局的跑局决策层、自动游玩驱动与数据校准工作为本项目新增。本项目不加载或分发 Random Foreseer / Combat Solver 程序集作为运行时依赖；运行时分离不改变上述代码来源关系。
 
-感谢 hotwords123 与 Random Foreseer 所做的工作。书面许可、署名、适用条件和第三方来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，并随每个二进制发布包提供。
+感谢 Torch、hotwords123 与他们所做的工作。书面许可、署名与适用条件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，并随每个二进制发布包提供。
 
-当前仓库公开源码，但尚未提供覆盖整个仓库的统一软件许可证。公开可见不等于获得不受限制的复制、修改或再发布授权；Random Foreseer 来源代码的许可边界以 `THIRD_PARTY_NOTICES.md` 为准。
+当前仓库公开源码，但尚未提供覆盖整个仓库的统一软件许可证。公开可见不等于获得不受限制的复制、修改或再发布授权；Random Foreseer 与 Combat Solver 来源代码的许可边界以 `THIRD_PARTY_NOTICES.md` 为准。

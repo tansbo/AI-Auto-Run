@@ -31,3 +31,15 @@ Random Foreseer code and the portions of Combat Solver derived from it remain su
 Combat Solver does not load or distribute the Random Foreseer assembly as a runtime dependency. This runtime separation does not alter the source relationship described above.
 
 At the time this permission was granted, the Random Foreseer repository did not contain a public software license. The permission recorded here does not place Random Foreseer-derived code under any separate license that may apply to Torch-authored portions of Combat Solver. If Random Foreseer later publishes a license, this notice will be updated to record the resulting licensing arrangement without removing the attribution and source history above.
+
+## Combat Solver（Torch1230）
+
+AI Auto-Run（AI自动跑局）基于 Combat Solver 构建，战斗内求解引擎继承自 Combat Solver。
+
+- Project: Combat Solver（战斗路线求解器 / Combat Solver）
+- Author and copyright holder: Torch
+- GitHub: https://github.com/Torch1230/CombatSolver
+
+### Permission Grant
+
+On 2026-09-04, Torch granted permission for use with attribution: 二次传播或之后发布公开内容时，须注明来源，并提及 Combat Solver 与 Random Foreseer 的仓库链接。本文件随每个二进制分发提供，记录该许可与来源关系。
