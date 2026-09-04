@@ -4,6 +4,9 @@
 
 ![演示：AI 自动执行战斗（全自动运行中，按推荐路线出牌）](docs/demo.gif)
 
+<video controls width="720" src="docs/demo.mp4"></video>
+*演示视频：AI 自动跑局实战（战斗自动执行 → 地图 → 选牌）*
+
 > 本仓库继承自 [Combat Solver](https://github.com/Torch1230/CombatSolver)（战斗路线求解器，作者 Torch），在其上构建本项目；技术标识（命名空间/mod id/目录）沿用 `CombatSolver`，产品与对外名称见本页。来源、许可与致谢见文末。
 >
 > English README: [README.en.md](README.en.md)
