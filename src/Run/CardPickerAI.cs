@@ -356,13 +356,31 @@ internal static class CardPickerAI
         "SharedFate", // 亡灵/无色：也把 Owner 力量扣 -X（SharedFate.cs OnPlay Apply -PlayerStrengthLoss）
     };
 
+    /// <summary>
+    /// 自减力量卡负分（v5 最终口径，2026-09-05）：
+    ///  玩家 StrengthPower 只作用于 Owner==dealer 的攻击（StrengthPower.cs L16-27）——所以"减自身力量"的
+    ///  真实代价 = 牌组对"玩家出手(FromCard)攻击"的依赖度（尤其多段——每段都吃力量）：
+    ///  依赖度低（几乎无攻击牌 / 主要靠 Osty/Doom 等不吃玩家力量的体系）→ 不加负分（亡灵主 Osty/Doom 默认无负分）；
+    ///  有依赖 → 通用 −2；玩家出手多段输出强（≥2 个多段源或多段爆发 ≥24）或力量流成型（StrengthPower 变量卡 ≥2）再 −2。
+    /// 阈值全部为启发式（数值可随语料重校，注释写明依据）。Osty 攻击 dealer=Osty 只吃 Osty 自身增益
+    /// （AttackCommand.cs FromOsty / OstyDamageVar.cs），与玩家力量无关（不存在的边，勿加）。
+    /// </summary>
     private static float StrengthDownPenalty(CardModel card, DeckContext context)
     {
         if (!SelfStrengthDownCards.Contains(card.GetType().Name))
             return 0f;
+        PlayerAttackReliance reliance = context.PlayerAttackReliance;
+        // 玩家出手攻击依赖度低 → 0：几乎不打攻击牌，或主走 Osty/Doom/召唤等不吃力量体系且玩家多段输出弱。
+        bool ostyDoomSystem = context.ConcentrationOf(ConcentrationDim.SummonGen) >= 2
+            || context.ConcentrationOf(ConcentrationDim.DoomApply) >= 6;
+        if (reliance.AttackOutput < 18f)
+            return 0f;
+        if (ostyDoomSystem && reliance.MultiHitAttackOutput < 12f)
+            return 0f;
         float penalty = -2f;
-        if (context.DeckVarCount("StrengthPower") >= 2)
-            penalty -= 2f; // 自身力量缩放输出的卡组里，自减力量更伤（如铁甲力量流）
+        bool strongPlayerHitOutput = reliance.MultiHitSources >= 2 || reliance.MultiHitAttackOutput >= 24f;
+        if (strongPlayerHitOutput || context.DeckVarCount("StrengthPower") >= 2)
+            penalty -= 2f;
         return penalty;
     }
 
@@ -670,6 +688,48 @@ internal sealed class DeckContext
     }
 
     private Dictionary<ConcentrationDim, float>? _concentration;
+
+    /// <summary>
+    /// 玩家出手(FromCard)攻击输出估计（v5 最终口径，惰性一次并缓存）：启发式口径见
+    /// <see cref="PlayerAttackReliance"/>——攻击牌=玩家出手（吃你的力量）；多段(Repeat/X)部分单独累计
+    /// （每段都吃力量，自减力量卡的代价随其放大）；Osty 攻击（FromOsty）不吃玩家力量，不计入。
+    /// 供 StrengthDownPenalty 按"牌组玩家出手攻击依赖度"缩放负分。
+    /// </summary>
+    public PlayerAttackReliance PlayerAttackReliance
+    {
+        get
+        {
+            if (_playerAttackReliance == null)
+            {
+                if (Deck == null)
+                {
+                    _playerAttackReliance = PlayerAttackReliance.Empty;
+                }
+                else
+                {
+                    float attack = 0f, multiHitAttack = 0f;
+                    int multiHitSources = 0;
+                    foreach (CardModel card in Deck)
+                    {
+                        if (card.Type != CardType.Attack)
+                            continue;
+                        CardAbilityProfile p = CardAbilityProfileReader.Of(card);
+                        attack += p.Attack;
+                        bool multiHit = card.DynamicVars.ContainsKey("Repeat") || card.EnergyCost.CostsX;
+                        if (multiHit)
+                        {
+                            multiHitSources++;
+                            multiHitAttack += p.Attack;
+                        }
+                    }
+                    _playerAttackReliance = new PlayerAttackReliance(attack, multiHitAttack, multiHitSources);
+                }
+            }
+            return _playerAttackReliance.Value;
+        }
+    }
+
+    private PlayerAttackReliance? _playerAttackReliance;
 
     /// <summary>牌组是否已含任一 Id.Entry（任意同名一张即可），供语义配合表查牌组构成。</summary>
     public bool ContainsAny(IEnumerable<string> entries)

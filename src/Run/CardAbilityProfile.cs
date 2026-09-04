@@ -29,6 +29,21 @@ internal readonly record struct DeckAbilityTotals(
 }
 
 /// <summary>
+/// 玩家出手(FromCard)攻击输出估计（v5 最终口径，启发式，见 DeckContext.PlayerAttackReliance）：
+///  AttackOutput = 牌组攻击牌四维画像合计（每张≈单回合等效爆发）；
+///  MultiHitAttackOutput/MultiHitSources = 其中多段(Repeat/X)部分——多段每段都吃你的力量，
+///  自减力量卡（友誼/SharedFate）的真实代价随"玩家出手多段输出"放大；
+///  Osty 攻击 dealer=Osty、不吃玩家力量（AttackCommand.cs FromOsty），不计入本估计。
+/// </summary>
+internal readonly record struct PlayerAttackReliance(
+    float AttackOutput,
+    float MultiHitAttackOutput,
+    int MultiHitSources)
+{
+    public static PlayerAttackReliance Empty => new(0f, 0f, 0);
+}
+
+/// <summary>
 /// 四维能力读取器：把一张卡压缩成 攻击/防御/回费/过牌 四个能力分。
 /// 口径（全部为启发式，注释写清"为什么这样估"；只服务牌组画像与补位评估，不进入任何模拟）：
 /// 攻击 = 基础伤害 × 命中段数（"Damage"×"Repeat"，无 Repeat 变量视为 1 段）；
