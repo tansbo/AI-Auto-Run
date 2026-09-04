@@ -13,17 +13,19 @@ internal readonly record struct CardAbilityProfile(float Attack, float Defense, 
 }
 
 /// <summary>
-/// 牌组画像合计（四维总和 + 回费端细分），由 <see cref="DeckContext.AbilityTotals"/> 惰性统计一次并缓存。
+/// 牌组画像合计（四维总和 + 回费/廉价细分），由 <see cref="DeckContext.AbilityTotals"/> 惰性统计一次并缓存。
+/// CheapCards = 0/1 费（非 X）卡数：廉价占比是"同回合连打/尽快上手"（第 4 条设计 C）的输入。
 /// </summary>
 internal readonly record struct DeckAbilityTotals(
     float AttackTotal,
     float DefenseTotal,
     float EnergyTotal,
     float DrawTotal,
-    int ZeroCostCards)
+    int ZeroCostCards,
+    int CheapCards)
 {
     /// <summary>空牌组（无 player/牌组时）的合计。</summary>
-    public static DeckAbilityTotals Empty => new(0f, 0f, 0f, 0f, 0);
+    public static DeckAbilityTotals Empty => new(0f, 0f, 0f, 0f, 0, 0);
 }
 
 /// <summary>

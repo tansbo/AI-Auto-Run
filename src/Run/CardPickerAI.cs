@@ -13,6 +13,7 @@ namespace CombatSolver.Run;
 ///      + 数据驱动（A10 胜率差，已含角色池中位，见 CardWinStats）
 ///      + 四维补位（攻击/防御/回费/过牌 画像合计 vs 分幕需求向量的缺口覆盖，见 <see cref="DeckGapFill"/>）
 ///      + 联动互乘（施加×依赖 / 回费×大费，见 <see cref="SynergyAmplify"/>）
+///      + 浓度-凸收益与每回合引擎（牌组同轴浓度档 × 抽牌可达性，见 ConcentrationProfiles）
 ///      + 本幕 Boss 取向（见 <see cref="BossAdjust"/>）。
 /// 最高分低于 <see cref="SkipThreshold"/> 时返回 null（跳过）。
 /// </summary>
@@ -166,6 +167,14 @@ internal static class CardPickerAI
         // ①施加×依赖：牌组已能稳定施加易伤时，收益随易伤成长的卡（DOMINATE/COLOSSUS）升值；
         // ②回费×大费：牌组回费/免费卡充足时，≥3 费攻击的可打窗口更大。依据见 SynergyAmplify 注释。
         score += SynergyAmplify(card, context);
+
+        // 浓度-凸收益（第 4 条设计 A）：同轴浓度达到档位时给补位分（如死亡之门需要牌组先手施灾厄），
+        // 并乘"启动/过牌可达性"系数（见 ConcentrationProfiles / DeckReachability）。
+        score += ConcentrationProfiles.ConcentrationBonus(card, context);
+
+        // 每回合触发引擎（第 4 条设计 B）：启动后每回合恒定产出的卡按"每回合收益 × 幕节奏 − 启动成本"
+        // 计分，抽牌差且引擎费高的有鬼抽罚（条目均带 decomp 行号依据，未核对不入表）。
+        score += ConcentrationProfiles.EngineBonus(card, context);
 
         // 本幕 Boss 取向：Boss 机制决定哪些卡更值（Vantom 墨影幻灵=每实例减免→多段/廉价攻击升值；
         // TestSubject 实验体=技能税→技能贬值）。规则与依据见 CardComboProfiles 同源 decomp 取证。
@@ -515,7 +524,7 @@ internal sealed class DeckContext
                 else
                 {
                     float attack = 0f, defense = 0f, energy = 0f, draw = 0f;
-                    int zeroCost = 0;
+                    int zeroCost = 0, cheap = 0;
                     foreach (CardModel card in Deck)
                     {
                         CardAbilityProfile p = CardAbilityProfileReader.Of(card);
@@ -523,10 +532,15 @@ internal sealed class DeckContext
                         defense += p.Defense;
                         energy += p.Energy;
                         draw += p.Draw;
-                        if (!card.EnergyCost.CostsX && card.EnergyCost.Canonical == 0)
-                            zeroCost++;
+                        if (!card.EnergyCost.CostsX)
+                        {
+                            if (card.EnergyCost.Canonical == 0)
+                                zeroCost++;
+                            if (card.EnergyCost.Canonical is 0 or 1)
+                                cheap++;
+                        }
                     }
-                    _abilityTotals = new DeckAbilityTotals(attack, defense, energy, draw, zeroCost);
+                    _abilityTotals = new DeckAbilityTotals(attack, defense, energy, draw, zeroCost, cheap);
                 }
             }
             return _abilityTotals.Value;
