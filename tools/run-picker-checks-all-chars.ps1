@@ -27,6 +27,13 @@
 # 每回合引擎行（CountdownPower.cs AfterSideTurnStart L26-36；机制与行号依据见 ConcentrationProfiles.cs；
 # "精神过载"NEUROSURGE 已核对为每回合对 Owner 自施 Doom（NeurosurgePower.cs L20-27），非对敌正值引擎，
 # 按"机制不符不入表"处理，不猜）。
+# 2026-09-05（第 5 条设计：浓度动态择优落库 + 多段放大器口径修正）：末尾新增 BULLY/MOLTENFIST/TIMESUP
+# 浓度行（engine-catalog 普查落库 EngineConcentration.cs：Bully=易伤浓度线性、MoltenFist=易伤浓度凸型、
+# TimesUp=Doom 浓度，锁定"当前牌组浓度→加分"与凸性放坡）；多段画像口径修正为"每段放大器源指数"
+# （IC=力量+易伤 13、静默=易伤+小刀放大器 2（不再因无力量 ×0.8）、亡灵=易伤+Doom+Osty/召唤 29（不含
+# 力量，友誼为负相关）、故障/君王=2/6 保守近似——中位 6 → IC/亡灵 ×1.25、其余 ×1.0；实测见
+# ROLE_STATUS_ACCESS 日志）；自减力量卡（Friendship/SharedFate）通用小扣分（不存在的"力量→Osty"等边不加）。
+# 以上行期望按 recal 实测回填。
 #
 # 用法：pwsh -NoProfile -File tools\run-picker-checks-all-chars.ps1
 param(
@@ -38,11 +45,11 @@ $ErrorActionPreference = "Stop"
 $toolsDir = $PSScriptRoot
 
 $characters = @(
-    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845; Conf = 36.575; Head12 = 25.805; Conf12 = 48.207; Dupes = 4.91;  Barr = 20.085; Act1Conf = 34.575; Act1Strike = -6.03;  ComboFinale = 45.755; Dom0 = 27.255; Col0 = 16.67;  DomBash = 27.255; ColBash = 16.67; Dd0 = 9; Dd1 = 11.871; Dd3 = 16.76; Cd = 16.52 },
-    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057; Conf = 39.787; Head12 = 24.622; Conf12 = 46.12;  Dupes = 4.122; Barr = 19.297; Act1Conf = 33.343; Act1Strike = -3.983; ComboFinale = 47.967; Dom0 = 19.967; Col0 = 9.382;  DomBash = 23.967; ColBash = 13.382; Dd0 = 8.213; Dd1 = 10.133; Dd3 = 13.063; Cd = 16.606 },
-    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;  Conf = 42.69;  Head12 = 27.116; Conf12 = 48.66; Dupes = 16.025; Barr = 22.2;  Act1Conf = 43.468; Act1Strike = -2.16;  ComboFinale = 56.87;  Dom0 = 22.87;  Col0 = 12.285; DomBash = 26.87;  ColBash = 16.285; Dd0 = 11.115; Dd1 = 14.029; Dd3 = 18.955; Cd = 16.597 },
-    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585; Conf = 39.315; Head12 = 23.741; Conf12 = 45.527; Dupes = 3.65;  Barr = 18.825; Act1Conf = 31.537; Act1Strike = -7.47;  ComboFinale = 44.495; Dom0 = 19.495; Col0 = 8.91;   DomBash = 24.495; ColBash = 13.91; Dd0 = 7.74; Dd1 = 10.654; Dd3 = 15.58; Cd = 16.597 },
-    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225; Conf = 34.955; Head12 = 23.73;  Conf12 = 45.955; Dupes = 3.29;  Barr = 18.465; Act1Conf = 32.955; Act1Strike = -7.83;  ComboFinale = 47.135; Dom0 = 25.635; Col0 = 15.05;  DomBash = 25.635; ColBash = 15.05; Dd0 = 7.38; Dd1 = 10.294; Dd3 = 15.22; Cd = 16.597 }
+    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845; Conf = 36.575; Head12 = 25.805; Conf12 = 48.207; Dupes = 4.91;  Barr = 20.085; Act1Conf = 34.575; Act1Strike = -6.03;  ComboFinale = 45.755; Dom0 = 27.255; Col0 = 16.67;  DomBash = 27.255; ColBash = 16.67; Dd0 = 9; Dd1 = 11.871; Dd3 = 16.76; Cd = 16.52; Bul = 23.693; Mol = 5.592; Tu = 21.325 },
+    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057; Conf = 39.787; Head12 = 24.622; Conf12 = 46.454; Dupes = 4.122; Barr = 19.297; Act1Conf = 33.787; Act1Strike = -3.983; ComboFinale = 47.967; Dom0 = 19.967; Col0 = 9.382;  DomBash = 23.967; ColBash = 13.382; Dd0 = 8.213; Dd1 = 10.133; Dd3 = 13.063; Cd = 16.606; Bul = 21.239; Mol = 7.138; Tu = 20.538 },
+    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;  Conf = 42.69;  Head12 = 27.116; Conf12 = 48.902; Dupes = 16.025; Barr = 22.2;  Act1Conf = 43.912; Act1Strike = -2.16;  ComboFinale = 56.87;  Dom0 = 22.87;  Col0 = 12.285; DomBash = 26.87;  ColBash = 16.285; Dd0 = 11.115; Dd1 = 14.029; Dd3 = 18.955; Cd = 16.597; Bul = 33.142; Mol = 19.041; Tu = 32.44 },
+    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585; Conf = 39.315; Head12 = 23.741; Conf12 = 45.83;  Dupes = 3.65;  Barr = 18.825; Act1Conf = 32.093; Act1Strike = -7.47;  ComboFinale = 44.495; Dom0 = 19.495; Col0 = 8.91;   DomBash = 24.495; ColBash = 13.91;  Dd0 = 7.74; Dd1 = 10.654; Dd3 = 15.58; Cd = 16.597; Bul = 20.767; Mol = 6.666; Tu = 20.065 },
+    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225; Conf = 34.955; Head12 = 23.73;  Conf12 = 45.555; Dupes = 3.29;  Barr = 18.465; Act1Conf = 32.955; Act1Strike = -7.83;  ComboFinale = 47.135; Dom0 = 25.635; Col0 = 15.05;  DomBash = 25.635; ColBash = 15.05; Dd0 = 7.38; Dd1 = 10.294; Dd3 = 15.22; Cd = 16.597; Bul = 21.24; Mol = 7; Tu = 19.705 }
 )
 
 $failed = @()
@@ -78,7 +85,10 @@ foreach ($ch in $characters) {
   {"kind":"Card","optionIds":["DEATHS_DOOR"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Dd0)},
   {"kind":"Card","optionIds":["DEATHS_DOOR"],"deckCardIds":["OBLIVION"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Dd1)},
   {"kind":"Card","optionIds":["DEATHS_DOOR"],"deckCardIds":["OBLIVION","OBLIVION"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Dd3)},
-  {"kind":"Card","optionIds":["COUNTDOWN"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Cd)}
+  {"kind":"Card","optionIds":["COUNTDOWN"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Cd)},
+  {"kind":"Card","optionIds":["BULLY"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Bul)},
+  {"kind":"Card","optionIds":["MOLTENFIST"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Mol)},
+  {"kind":"Card","optionIds":["TIMESUP"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Tu)}
 ]
 "@
     Write-Host ""

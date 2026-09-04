@@ -14,6 +14,7 @@ namespace CombatSolver.Run;
 ///      + 四维补位（攻击/防御/回费/过牌 画像合计 vs 分幕需求向量的缺口覆盖，见 <see cref="DeckGapFill"/>）
 ///      + 联动互乘（施加×依赖 / 回费×大费，见 <see cref="SynergyAmplify"/>）
 ///      + 浓度-凸收益与每回合引擎（牌组同轴浓度档 × 抽牌可达性，见 ConcentrationProfiles）
+///      + 浓度动态择优（engine-catalog 普查落库：当前浓度下的期望收益加分，凸型放坡，见 EngineConcentration）
 ///      + 本幕 Boss 取向（见 <see cref="BossAdjust"/>）。
 /// 最高分低于 <see cref="SkipThreshold"/> 时返回 null（跳过）。
 /// </summary>
@@ -39,7 +40,9 @@ internal static class CardPickerAI
             return null;
         DeckContext context = DeckContext.From(player, runState);
         CardModel? best = null;
+        CardModel? secondBest = null;
         float bestScore = float.MinValue;
+        float secondScore = float.MinValue;
         foreach (CardModel card in options)
         {
             if (card.Type is CardType.Status or CardType.Curse)
@@ -47,9 +50,32 @@ internal static class CardPickerAI
             float score = Evaluate(card, context);
             if (score > bestScore)
             {
+                secondBest = best;
+                secondScore = bestScore;
                 bestScore = score;
                 best = card;
             }
+            else if (score > secondScore)
+            {
+                secondScore = score;
+                secondBest = card;
+            }
+        }
+        if (best == null || bestScore < SkipThreshold)
+            return best != null && bestScore >= SkipThreshold ? best : null;
+
+        // 协同上行取舍（第 5 条设计）：仅当 冠军/亚军 都明显过得去（都 ≥ 跳过阈值、分数差 ≤1 的贴脸局、
+        // 血量正常≈本幕路线余量正常）时，改偏好"同机制伙伴/上行更高"的候选（避免只看远景乱抓）。
+        // 上行 = 牌组同机制伙伴数 + 本职业池同机制普查密度（见 EngineConcentration.UpsideIndex）。
+        if (secondBest != null
+            && secondScore >= SkipThreshold
+            && bestScore - secondScore <= 1f
+            && context.HpRatio >= 0.5f
+            && EngineConcentration.UpsideIndex(secondBest.GetType().Name, context.ReceivingRole, context)
+               > EngineConcentration.UpsideIndex(best.GetType().Name, context.ReceivingRole, context))
+        {
+            best = secondBest;
+            bestScore = secondScore;
         }
         return best != null && bestScore >= SkipThreshold ? best : null;
     }
@@ -175,6 +201,17 @@ internal static class CardPickerAI
         // 每回合触发引擎（第 4 条设计 B）：启动后每回合恒定产出的卡按"每回合收益 × 幕节奏 − 启动成本"
         // 计分，抽牌差且引擎费高的有鬼抽罚（条目均带 decomp 行号依据，未核对不入表）。
         score += ConcentrationProfiles.EngineBonus(card, context);
+
+        // 浓度动态择优（第 5 条设计，普查落库）：候选命中 engine-catalog 且维度已激活时，按"当前牌组
+        // 浓度 → cap"分档加分（凸型浓度² 放坡）。数据与口径见 EngineConcentration（宁缺毋滥，保守 ≤5）。
+        score += EngineConcentration.ConcentrationBonus(card, context);
+
+        // 自减力量卡通用小扣分（v5 硬事实 ②④）：玩家 StrengthPower 只作用于 Owner==dealer 的攻击
+        // （StrengthPower.cs L16-27），自减力量会削弱本人全部 powered 攻击；池内自减力量卡仅
+        // Friendship（-2，升级 -1）/SharedFate（decomp 核对）。通用 −2；牌组已有明显"自身力量缩放输出"
+        // （DeckVarCount("StrengthPower") ≥2，如铁甲力量流）时加重 −2。亡灵默认不加特殊处理
+        // （力量流罕见；不存在"玩家力量→Osty"边，见 RoleStatusAccess 类文档）。
+        score += StrengthDownPenalty(card, context);
 
         // 本幕 Boss 取向：Boss 机制决定哪些卡更值（Vantom 墨影幻灵=每实例减免→多段/廉价攻击升值；
         // TestSubject 实验体=技能税→技能贬值）。规则与依据见 CardComboProfiles 同源 decomp 取证。
@@ -309,6 +346,24 @@ internal static class CardPickerAI
                 bonus += BigAttackEnergyBonus;
         }
         return bonus;
+    }
+
+    /// <summary>自减力量卡（decomp 核对：池内仅 Friendship/SharedFate 有"给 Owner 负力量"路径）：
+    /// 通用小扣分会削弱本人 powered 攻击；牌组力量流成型（StrengthPower 变量卡 ≥2）时加重。</summary>
+    private static readonly HashSet<string> SelfStrengthDownCards = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Friendship", // 亡灵 1 费 Power：施 -Strength 2（升级 -1），每层每回合 +1 最大能量（Friendship.cs OnPlay）
+        "SharedFate", // 亡灵/无色：也把 Owner 力量扣 -X（SharedFate.cs OnPlay Apply -PlayerStrengthLoss）
+    };
+
+    private static float StrengthDownPenalty(CardModel card, DeckContext context)
+    {
+        if (!SelfStrengthDownCards.Contains(card.GetType().Name))
+            return 0f;
+        float penalty = -2f;
+        if (context.DeckVarCount("StrengthPower") >= 2)
+            penalty -= 2f; // 自身力量缩放输出的卡组里，自减力量更伤（如铁甲力量流）
+        return penalty;
     }
 
     /// <summary>候选卡与牌组既有机械轴的契合加成：每命中一个已启动的轴 +2×min(3, 同轴数)。</summary>
@@ -548,6 +603,73 @@ internal sealed class DeckContext
     }
 
     private DeckAbilityTotals? _abilityTotals;
+
+    /// <summary>
+    /// 牌组"浓度维度"测度（第 5 条设计，见 <see cref="ConcentrationDim"/>）：单次惰性遍历整副牌一次并缓存，
+    /// 全部读真实 DynamicVars 总量/关键词/标签/费用（主线程调用）。激活维度口径：
+    ///  VulnerableApply=VulnerablePower 变量总量（施加层数）；DoomApply=DoomPower 总量；PoisonAmount=
+    ///  PoisonPower 总量；Exhaust/Ethereal=关键词卡数；DrawDiscard=Cards 变量总量 + 0.5×Sly(被弃触发)卡数；
+    ///  SummonGen=Minion/OstyAttack 标签数 + Summon 变量卡数；CardPlays=0/1 费卡数；AttackCount=攻击卡数；
+    ///  SkillCount=技能卡数。未激活维度（Orbs/Stars/Soul/…）不存、恒 0（见 EngineConcentration 类文档）。
+    /// </summary>
+    public float ConcentrationOf(ConcentrationDim dim)
+    {
+        if (_concentration == null)
+        {
+            var measures = new Dictionary<ConcentrationDim, float>();
+            if (Deck != null)
+            {
+                float vuln = 0f, doom = 0f, poison = 0f, draw = 0f;
+                int exhaust = 0, ethereal = 0, sly = 0, minion = 0, osty = 0, summonVar = 0, skills = 0, cheap = 0;
+                foreach (CardModel card in Deck)
+                {
+                    if (card.Type == CardType.Skill)
+                        skills++;
+                    if (!card.EnergyCost.CostsX && card.EnergyCost.Canonical is 0 or 1)
+                        cheap++;
+                    foreach (CardKeyword keyword in card.Keywords)
+                    {
+                        if (keyword == CardKeyword.Exhaust)
+                            exhaust++;
+                        else if (keyword == CardKeyword.Ethereal)
+                            ethereal++;
+                        else if (keyword == CardKeyword.Sly)
+                            sly++;
+                    }
+                    if (card.Tags.Contains(CardTag.Minion))
+                        minion++;
+                    if (card.Tags.Contains(CardTag.OstyAttack))
+                        osty++;
+                    foreach (KeyValuePair<string, MegaCrit.Sts2.Core.Localization.DynamicVars.DynamicVar> pair in card.DynamicVars)
+                    {
+                        float value = Math.Max(0f, (float)pair.Value.BaseValue);
+                        switch (pair.Key)
+                        {
+                            case "VulnerablePower": vuln += value; break;
+                            case "DoomPower": doom += value; break;
+                            case "PoisonPower": poison += value; break;
+                            case "Cards": draw += value; break;
+                            case "Summon": summonVar++; break;
+                        }
+                    }
+                }
+                measures[ConcentrationDim.VulnerableApply] = vuln;
+                measures[ConcentrationDim.DoomApply] = doom;
+                measures[ConcentrationDim.PoisonAmount] = poison;
+                measures[ConcentrationDim.Exhaust] = exhaust;
+                measures[ConcentrationDim.Ethereal] = ethereal;
+                measures[ConcentrationDim.DrawDiscard] = draw + 0.5f * sly;
+                measures[ConcentrationDim.SummonGen] = minion + osty + summonVar;
+                measures[ConcentrationDim.CardPlays] = cheap;
+                measures[ConcentrationDim.AttackCount] = AttackCount;
+                measures[ConcentrationDim.SkillCount] = skills;
+            }
+            _concentration = measures;
+        }
+        return _concentration.TryGetValue(dim, out float measured) ? measured : 0f;
+    }
+
+    private Dictionary<ConcentrationDim, float>? _concentration;
 
     /// <summary>牌组是否已含任一 Id.Entry（任意同名一张即可），供语义配合表查牌组构成。</summary>
     public bool ContainsAny(IEnumerable<string> entries)
