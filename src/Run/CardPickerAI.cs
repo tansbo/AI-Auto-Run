@@ -154,7 +154,32 @@ internal static class CardPickerAI
         // 同轴检测覆盖不到；条目见 CardComboProfiles（仅收录反编译机制核对过的方向）。
         score += CardComboProfiles.Bonus(card.Id.Entry, context);
 
+        // 卡组短板/成型度：牌组缺某类角色能力时，能补位的候选更值（成型后自然衰减见上方"冗余衰减"）。
+        score += DeckGapBonus(card, context);
+
         return score;
+    }
+
+    /// <summary>
+    /// 短板补位加分（启发式，随语料校准）：
+    /// ①过牌/启动缺口：牌组一张抽牌/能量轴牌都没有且已 ≥8 张时，带抽轴候选 +5（首张过牌最值）；
+    /// ②高伤/终结缺口：已 ≥12 张且一张 ≥2 费攻击都没有时（幕 1 中段后），≥2 费攻击候选 +5
+    ///   （打精英/Boss 的斩杀线层缺失）。只加不减、阈值保守，避免开局乱抓大费牌。
+    /// </summary>
+    private static float DeckGapBonus(CardModel card, DeckContext context)
+    {
+        float bonus = 0f;
+        if (context.DrawAxis == 0 && context.DeckSize >= 8
+            && (card.DynamicVars.ContainsKey(DrawVarCards) || card.DynamicVars.ContainsKey(DrawVarEnergy)))
+            bonus += 5f;
+        if (context.ActIndex >= 1
+            && context.DeckSize >= 12
+            && context.HeavyAttackCount == 0
+            && card.Type == CardType.Attack
+            && !card.EnergyCost.CostsX
+            && card.EnergyCost.Canonical >= 2)
+            bonus += 5f;
+        return bonus;
     }
 
     /// <summary>候选卡与牌组既有机械轴的契合加成：每命中一个已启动的轴 +2×min(3, 同轴数)。</summary>
@@ -204,6 +229,8 @@ internal sealed class DeckContext
     public int PowerCount { get; }
     public int BlockCardCount { get; }
     public int AoECount { get; }
+    /// <summary>牌组里 ≥2 费（非 X 费）的攻击牌数：衡量是否已有"高伤/终结"层。</summary>
+    public int HeavyAttackCount { get; }
     public float HpRatio { get; }
     public int ActIndex { get; }
 
@@ -245,7 +272,8 @@ internal sealed class DeckContext
         int doomAxis,
         int strengthAxis,
         int drawAxis,
-        int zeroCostAxis)
+        int zeroCostAxis,
+        int heavyAttackCount)
     {
         Deck = deck;
         DeckSize = deckSize;
@@ -265,6 +293,7 @@ internal sealed class DeckContext
         StrengthAxis = strengthAxis;
         DrawAxis = drawAxis;
         ZeroCostAxis = zeroCostAxis;
+        HeavyAttackCount = heavyAttackCount;
     }
 
     public int CountOf(CardModel card)
@@ -289,11 +318,12 @@ internal sealed class DeckContext
             : player.Character.GetType().Name.ToUpperInvariant();
         if (deck == null)
             return new DeckContext(null, 0, 0, 0, 0, 0, 1f, runState?.CurrentActIndex ?? 0,
-                receivingRole, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                receivingRole, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         int attack = 0, power = 0, block = 0, aoE = 0;
         int exhaustAxis = 0, shivAxis = 0, minionAxis = 0, ostyAxis = 0;
         int poisonAxis = 0, doomAxis = 0, strengthAxis = 0, drawAxis = 0, zeroCostAxis = 0;
+        int heavyAttack = 0;
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (CardModel card in deck)
         {
@@ -325,6 +355,10 @@ internal sealed class DeckContext
                 drawAxis++;
             if (!card.EnergyCost.CostsX && card.EnergyCost.Canonical <= 0)
                 zeroCostAxis++;
+            if (card.Type == CardType.Attack
+                && !card.EnergyCost.CostsX
+                && card.EnergyCost.Canonical >= 2)
+                heavyAttack++;
         }
 
         float hpRatio = player == null || player.Creature.MaxHp <= 0
@@ -332,7 +366,7 @@ internal sealed class DeckContext
             : (float)player.Creature.CurrentHp / player.Creature.MaxHp;
 
         var context = new DeckContext(deck, deck.Count, attack, power, block, aoE, hpRatio, runState?.CurrentActIndex ?? 0,
-            receivingRole, exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis);
+            receivingRole, exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis, heavyAttack);
         foreach (KeyValuePair<string, int> pair in counts)
             context._cardCounts[pair.Key] = pair.Value;
         return context;
