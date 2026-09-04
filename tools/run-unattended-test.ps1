@@ -208,7 +208,9 @@ param(
     [switch]$ExitOnComplete,
     [switch]$RunAutoFullRun,
     [string]$RunAutoForcedPicks = "",
-    [switch]$RunAutoTelemetryEnabled
+    [switch]$RunAutoTelemetryEnabled,
+[string]$RunAutoTelemetryUrl = "",
+[switch]$RunAutoTelemetryUpload
 )
 
 $ErrorActionPreference = "Stop"
@@ -811,6 +813,8 @@ $request = [ordered]@{
     runAutoFullRun = $RunAutoFullRun.IsPresent
     runAutoForcedPicks = $RunAutoForcedPicks
     runAutoTelemetryEnabled = $RunAutoTelemetryEnabled.IsPresent
+            runAutoTelemetryUpload = $RunAutoTelemetryUpload.IsPresent
+            runAutoTelemetryUrl = $RunAutoTelemetryUrl
     pickerChecks = @()
     exitOnComplete = $ExitOnComplete.IsPresent
 }
@@ -1304,3 +1308,4 @@ if ($null -ne $launcherFailure) {
     }
     throw $launcherFailure
 }
+

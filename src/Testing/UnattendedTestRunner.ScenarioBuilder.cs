@@ -283,6 +283,8 @@ internal sealed partial class UnattendedTestRunner
                 RunAutoDebugLog = true,
                 RunAutoForcedPicks = runner._request.RunAutoForcedPicks ?? string.Empty,
                 RunAutoTelemetryEnabled = runner._request.RunAutoTelemetryEnabled,
+                RunAutoTelemetryUpload = runner._request.RunAutoTelemetryUpload,
+                RunAutoTelemetryUrl = runner._request.RunAutoTelemetryUrl,
                 // 偏差诊断：整局冒烟开启详细日志，战斗每回合结束输出
                 // HP_PREDICTION（搜索预测 vs 实机复核投影），用于定位计划掉血偏差。
                 EnableDetailedDiagnosticLogs = true,

@@ -184,6 +184,9 @@ internal sealed class UnattendedTestRequest
     public string RunAutoForcedPicks { get; init; } = string.Empty;
     /// <summary>整局遥测开关：跑局结束后写 user://run_telemetry/ 结构化 JSON（种子重放 A/B 数据源）。</summary>
     public bool RunAutoTelemetryEnabled { get; init; }
+    /// <summary>遥测自动上传（opt-in）：开启并把本局匿名遥测 POST 到 RunAutoTelemetryUrl。</summary>
+    public bool RunAutoTelemetryUpload { get; init; }
+    public string? RunAutoTelemetryUrl { get; init; }
     public bool ExitOnComplete { get; init; } = true;
 }
 
