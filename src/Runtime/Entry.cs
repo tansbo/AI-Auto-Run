@@ -37,7 +37,7 @@ public static class Entry
         RunAutoController.Subscribe();
         RunAutoSettingsPage.Register();
 
-        var patcher = RitsuLibFramework.CreatePatcher(ModId, "combat-solver", "战斗路线求解器");
+        var patcher = RitsuLibFramework.CreatePatcher(ModId, "combat-solver", "AI自动跑局");
         patcher.RegisterPatch<PlayerTurnSetupPatch>();
         patcher.RegisterPatch<PlayerTurnAutoPrePlayPatch>();
         patcher.RegisterPatch<ChooseCardObservationPatch>();

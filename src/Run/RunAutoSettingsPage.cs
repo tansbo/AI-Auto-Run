@@ -15,7 +15,7 @@ internal static class RunAutoSettingsPage
     {
         RitsuLibFramework.RegisterModSettings(Entry.ModId, page =>
         {
-            page.WithModDisplayName(ModSettingsText.Literal("战斗路线求解器"));
+            page.WithModDisplayName(ModSettingsText.Literal("AI自动跑局"));
             page.AddSection("run_ai", section =>
             {
                 section.WithTitle(ModSettingsText.Literal("全自动跑局"));

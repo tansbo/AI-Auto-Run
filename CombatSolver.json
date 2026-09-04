@@ -1,8 +1,8 @@
 {
   "id": "CombatSolver",
-  "name": "战斗路线求解器",
+  "name": "AI自动跑局",
   "author": "Torch",
-  "description": "异步搜索单场战斗路线，支持三态药水策略、路线复用和连续全自动执行。",
+  "description": "AI自动跑局：整局自动游玩与跑局决策（自动选路/事件/药水/金币/篝火/遗物/抓牌）；战斗内异步搜索最优路线（沿用 Combat Solver 局内求解）。",
   "version": "0.22.9",
   "has_pck": false,
   "has_dll": true,
@@ -15,3 +15,4 @@
     }
   ]
 }
+
