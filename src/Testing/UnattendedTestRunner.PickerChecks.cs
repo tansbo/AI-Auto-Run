@@ -107,11 +107,17 @@ internal sealed partial class UnattendedTestRunner
             float actual = CardPickerAI.Evaluate(options[0], context);
             if (Math.Abs(actual - expectedScore) > 0.001f)
             {
-                throw new InvalidOperationException(
+                string detail =
                     $"卡牌 {options[0].Id.Entry} 评分期望 {expectedScore}，实际 {actual:0.###}。" +
                     $"牌组画像: deck={context.DeckSize} attacks={context.AttackCount} " +
                     $"blocks={context.BlockCardCount} aoe={context.AoECount} act={context.ActIndex} " +
-                    $"hp={context.HpRatio:0.##} count={context.CountOf(options[0])}");
+                    $"role={context.ReceivingRole} count={context.CountOf(options[0])}";
+                if (check.ScoreLogOnly)
+                {
+                    Entry.Logger.Warn($"[CombatSolver/Unattended] PICKER_SCORE_ACTUAL {detail}");
+                    return;
+                }
+                throw new InvalidOperationException(detail);
             }
             return;
         }
@@ -138,8 +144,13 @@ internal sealed partial class UnattendedTestRunner
             float actual = RelicPickerAI.Score(options[0]);
             if (Math.Abs(actual - expectedScore) > 0.001f)
             {
-                throw new InvalidOperationException(
-                    $"遗物 {options[0].Id.Entry} 评分期望 {expectedScore}，实际 {actual:0.###}。");
+                string detail = $"遗物 {options[0].Id.Entry} 评分期望 {expectedScore}，实际 {actual:0.###}。";
+                if (check.ScoreLogOnly)
+                {
+                    Entry.Logger.Warn($"[CombatSolver/Unattended] PICKER_SCORE_ACTUAL {detail}");
+                    return;
+                }
+                throw new InvalidOperationException(detail);
             }
             return;
         }

@@ -218,6 +218,9 @@ internal sealed class UnattendedPickerCheck
     public bool AllowAncientCurseFallback { get; init; }
     /// <summary>Card/Relic：可选，断言 Evaluate/Score 返回的精确评分（浮点容差 0.001，仅支持单个候选）。</summary>
     public float? ExpectedScore { get; init; }
+    /// <summary>仅评分断言（ExpectedScore）校准用：为 true 时评分不符只记录实际值并继续，不中止本局。
+    /// 用于公式调整后的期望值批量重校（重校后应去掉该开关复跑确认）。</summary>
+    public bool ScoreLogOnly { get; init; }
 }
 
 internal sealed class UnattendedPotionCheck

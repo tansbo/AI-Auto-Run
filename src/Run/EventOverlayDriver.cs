@@ -1,4 +1,7 @@
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
@@ -8,6 +11,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Runs;
 
 namespace CombatSolver.Run;
 
@@ -93,6 +97,10 @@ internal static class EventOverlayDriver
             return;
 
         NConfirmButton? confirm = screen.GetNodeOrNull<NConfirmButton>("%Confirm");
+        // min==0 的"任意选"网格（典型：欧罗巴斯海玻璃——15 张他职业牌任选 0..15 入组）确认按钮一开始
+        // 就可点：若不先选牌，AI 会一张不拿直接确认，跨职业渠道零收益。先按价值择优再确认。
+        if (confirm != null && confirm.IsEnabled && IsStillTop(screen))
+            await PickBestFreePicksAsync(screen, grid, token);
         List<NGridCardHolder> picked = [];
         for (int i = 0; i < 10 && IsStillTop(screen); i++)
         {
@@ -112,6 +120,46 @@ internal static class EventOverlayDriver
         }
         await WaitUntilClosed(screen, token, "事件选牌覆盖层未关闭");
     }
+
+    /// <summary>
+    /// 任意选（min==0）网格的择优政策：用 CardPickerAI 对当前可见候选评分（接收职业中位数据驱动
+    /// + 牌组体系契合），按分降序最多拿 <see cref="MaxFreePicks"/> 张、低于跳过阈值不拿；无玩家上下文
+    /// 或一张都不值则保持 0 张（由调用方直接确认）。状态/诅咒不拿。
+    /// </summary>
+    private static async Task PickBestFreePicksAsync(NSimpleCardSelectScreen screen, NCardGrid grid, CancellationToken token)
+    {
+        List<NGridCardHolder> holders = RunUiHelper.FindAll<NGridCardHolder>(screen)
+            .Where(static h => h.CardModel != null)
+            .ToList();
+        CardModel? sample = holders.Count == 0 ? null : holders[0].CardModel;
+        Player? player = sample?.Owner;
+        if (player == null || holders.Count == 0)
+            return;
+        RunState? runState = sample?.RunState as RunState;
+        var scored = new List<(NGridCardHolder Holder, float Score)>();
+        foreach (NGridCardHolder holder in holders)
+        {
+            CardModel? card = holder.CardModel;
+            if (card == null || card.Type is CardType.Status or CardType.Curse)
+                continue;
+            scored.Add((holder, CardPickerAI.Evaluate(card, DeckContext.From(player, runState))));
+        }
+        scored.Sort((a, b) => b.Score.CompareTo(a.Score));
+        int taken = 0;
+        foreach ((NGridCardHolder holder, float score) in scored)
+        {
+            if (taken >= MaxFreePicks || score < CardPickerAI.SkipThreshold || !IsStillTop(screen))
+                break;
+            RunAutoController.Session?.LogDecision($"任意选牌：择优 {holder.CardModel?.Id.Entry}（评分 {score:0.##}）");
+            grid.EmitSignal(NCardGrid.SignalName.HolderPressed, holder);
+            taken++;
+            await Task.Delay(300, token);
+        }
+        if (taken > 0)
+            RunAutoController.Session?.LogDecision($"任意选牌：共择优 {taken} 张入组");
+    }
+
+    private const int MaxFreePicks = 5;
 
     /// <summary>当前覆盖层是否仍是这个选牌屏幕（未被关闭/替换）。</summary>
     private static bool IsStillTop(CanvasItem screen)

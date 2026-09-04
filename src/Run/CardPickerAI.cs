@@ -15,7 +15,7 @@ namespace CombatSolver.Run;
 /// </summary>
 internal static class CardPickerAI
 {
-    private const float SkipThreshold = 9f;
+    internal const float SkipThreshold = 9f;
 
     /// <summary>少数关键成型牌/废牌的手写加成。key 是卡牌 Id.Entry（实测为大写，如 "BATTLE_TRANCE"）；
     /// 用 OrdinalIgnoreCase 兼容手写的小写 key。注意：这些加成在修复前从未命中过（实测 Id.Entry 是大写）。</summary>
@@ -139,9 +139,10 @@ internal static class CardPickerAI
                 score -= 2f;
         }
 
-        // 数据驱动（Spire Codex A10 真实对局）：胜率差加成，卡在牌组里会随 DeckContext 一并复算。
-        if (CardWinStats.BonusById.TryGetValue(card.Id.Entry, out float winBonus))
-            score += winBonus;
+        // 数据驱动（Spire Codex A10 真实对局）：同池卡对照自身池中位；跨池/无色卡（万花筒/海玻璃/
+        // 棱彩宝石/色彩哲学家等渠道可拿到他职业或无色牌）对照"接收职业中位"，衡量这张外来卡对
+        // 当前职业的相对强度——他职业高胜率牌对本职业可能极有价值（见 CardWinStats.BonusFor）。
+        score += CardWinStats.BonusFor(card.Id.Entry, context.ReceivingRole);
 
         // 卡组体系契合：候选属于某机械轴，且牌组里该轴已成型（有 ≥1 张同轴牌）时加分。
         // 机械轴全部取自卡牌自身的可读数据（关键词/标签/DynamicVar/费用），不是手写卡表：
@@ -202,6 +203,10 @@ internal sealed class DeckContext
     public float HpRatio { get; }
     public int ActIndex { get; }
 
+    /// <summary>接收职业（当前玩家的角色类名大写，如 IRONCLAD/SILENT/DEFECT/NECROBINDER/REGENT；未知为空）。
+    /// 供 CardWinStats.BonusFor 判断跨池/无色卡对当前职业的相对强度。</summary>
+    public string ReceivingRole { get; }
+
     /// <summary>机械轴同轴计数：牌组里已有多少张同关键词/标签/DynamicVar/零费牌（体系成型度）。</summary>
     public int ExhaustAxis { get; }
     public int ShivAxis { get; }
@@ -227,6 +232,7 @@ internal sealed class DeckContext
         int aoECount,
         float hpRatio,
         int actIndex,
+        string receivingRole,
         int exhaustAxis,
         int shivAxis,
         int minionAxis,
@@ -245,6 +251,7 @@ internal sealed class DeckContext
         AoECount = aoECount;
         HpRatio = hpRatio;
         ActIndex = actIndex;
+        ReceivingRole = receivingRole;
         ExhaustAxis = exhaustAxis;
         ShivAxis = shivAxis;
         MinionAxis = minionAxis;
@@ -262,9 +269,12 @@ internal sealed class DeckContext
     public static DeckContext From(Player? player, RunState? runState)
     {
         IReadOnlyList<CardModel>? deck = player == null ? null : PileType.Deck.GetPile(player).Cards;
+        string receivingRole = player?.Character == null
+            ? string.Empty
+            : player.Character.GetType().Name.ToUpperInvariant();
         if (deck == null)
             return new DeckContext(null, 0, 0, 0, 0, 0, 1f, runState?.CurrentActIndex ?? 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0);
+                receivingRole, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         int attack = 0, power = 0, block = 0, aoE = 0;
         int exhaustAxis = 0, shivAxis = 0, minionAxis = 0, ostyAxis = 0;
@@ -307,7 +317,7 @@ internal sealed class DeckContext
             : (float)player.Creature.CurrentHp / player.Creature.MaxHp;
 
         var context = new DeckContext(deck, deck.Count, attack, power, block, aoE, hpRatio, runState?.CurrentActIndex ?? 0,
-            exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis);
+            receivingRole, exhaustAxis, shivAxis, minionAxis, ostyAxis, poisonAxis, doomAxis, strengthAxis, drawAxis, zeroCostAxis);
         foreach (KeyValuePair<string, int> pair in counts)
             context._cardCounts[pair.Key] = pair.Value;
         return context;

@@ -5,9 +5,9 @@
 #
 # 期望值对 5 个角色通用：各角色初始牌组都含 >=3 张同名打击/防御（重复惩罚 -10 生效）、
 # 无 AOE、攻击比例 >0.3（无攻击比例加成），起始特殊牌均为单目标基础牌。
-# 2026-09-04：战吼（抽牌轴，CardsVar）单卡期望按角色参数化——SILENT（12 张，含幸存者抽牌）与
-# REGENT（10 张，含抽牌/能量轴起始牌）初始牌组带抽牌轴，触发体系契合 +2（32.845 → 34.845）；
-# IRONCLAD/DEFECT/NECROBINDER 初始牌组无抽牌轴，维持 32.845。
+# 2026-09-04：跨职业（接收职业中位）数据驱动校准后，他职业候选卡（战吼/燃烧/头槌/壁垒）的
+# 期望按角色各不相同：同池=对照自身池中位，跨池=对照接收职业中位（CardWinStats.BonusFor）。
+# 另：SILENT（初始含幸存者抽牌）与 REGENT（起始特殊牌带抽牌/能量轴）带抽牌轴 → 战吼+2 体系契合。
 #
 # 用法：pwsh -NoProfile -File tools\run-picker-checks-all-chars.ps1
 param(
@@ -19,11 +19,11 @@ $ErrorActionPreference = "Stop"
 $toolsDir = $PSScriptRoot
 
 $characters = @(
-    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Dupes = 0.91;  Def20 = -8.995; Act1Conf = 30.575; Act1Strike = -6.03;  Bt = 32.845 },
-    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -3.983; Bt = 34.845 },
-    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Dupes = 9.91;  Def20 = -9.13;  Act1Conf = 39.575; Act1Strike = -2.16;  Bt = 32.845 },
-    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Dupes = 0.91;  Def20 = -4;     Act1Conf = 30.575; Act1Strike = -7.47;  Bt = 32.845 },
-    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Dupes = 0.91;  Def20 = -5.395; Act1Conf = 30.575; Act1Strike = -7.83;  Bt = 34.845 }
+    @{ Id = "IRONCLAD";   Strike = "STRIKE_IRONCLAD";    Defend = "DEFEND_IRONCLAD";    Def20 = -8.995; Bt = 32.845;  Conf = 32.575; Head12 = 19.91;  Dupes = 0.91;  Barr = 20.085; Act1Conf = 30.575; Act1Strike = -6.03 },
+    @{ Id = "SILENT";     Strike = "STRIKE_SILENT";      Defend = "DEFEND_SILENT";      Def20 = -4;     Bt = 34.057;  Conf = 31.787; Head12 = 19.122; Dupes = 0.122; Barr = 19.297; Act1Conf = 29.787; Act1Strike = -3.983 },
+    @{ Id = "DEFECT";     Strike = "STRIKE_DEFECT";      Defend = "DEFEND_DEFECT";      Def20 = -9.13;  Bt = 34.96;   Conf = 34.69;  Head12 = 22.025; Dupes = 12.025; Barr = 22.2;   Act1Conf = 41.69;  Act1Strike = -2.16 },
+    @{ Id = "NECROBINDER"; Strike = "STRIKE_NECROBINDER"; Defend = "DEFEND_NECROBINDER"; Def20 = -4;     Bt = 31.585;  Conf = 31.315; Head12 = 18.65;  Dupes = -0.35; Barr = 18.825; Act1Conf = 29.315; Act1Strike = -7.47 },
+    @{ Id = "REGENT";     Strike = "STRIKE_REGENT";      Defend = "DEFEND_REGENT";      Def20 = -5.395; Bt = 33.225;  Conf = 30.955; Head12 = 18.29;  Dupes = -0.71; Barr = 18.465; Act1Conf = 28.955; Act1Strike = -7.83 }
 )
 
 $failed = @()
@@ -37,10 +37,10 @@ foreach ($ch in $characters) {
   {"kind":"Card","optionIds":["$strike","$defend","BATTLE_TRANCE"],"expectedPickId":"BATTLE_TRANCE"},
   {"kind":"Card","optionIds":["BATTLE_TRANCE"],"expectedScore":$($ch.Bt)},
   {"kind":"Card","optionIds":["$defend"],"playerHp":20,"playerMaxHp":80,"expectedScore":$($ch.Def20)},
-  {"kind":"Card","optionIds":["CONFLAGRATION"],"playerHp":80,"playerMaxHp":80,"expectedScore":32.575},
-  {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":[$defend12],"playerHp":80,"playerMaxHp":80,"expectedScore":19.91},
+  {"kind":"Card","optionIds":["CONFLAGRATION"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Conf)},
+  {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":[$defend12],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Head12)},
   {"kind":"Card","optionIds":["HEADBUTT"],"deckCardIds":["HEADBUTT","HEADBUTT","HEADBUTT"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Dupes)},
-  {"kind":"Card","optionIds":["BARRICADE"],"playerHp":80,"playerMaxHp":80,"expectedScore":20.085},
+  {"kind":"Card","optionIds":["BARRICADE"],"playerHp":80,"playerMaxHp":80,"expectedScore":$($ch.Barr)},
   {"kind":"Relic","optionIds":["ANCHOR","ART_OF_WAR"],"expectedPickId":"ART_OF_WAR"},
   {"kind":"Relic","optionIds":["ANCHOR","RUNIC_PYRAMID"],"expectedPickId":"RUNIC_PYRAMID"},
   {"kind":"Relic","optionIds":["RUNIC_PYRAMID"],"expectedScore":21},
