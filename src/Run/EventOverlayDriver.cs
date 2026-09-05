@@ -75,10 +75,11 @@ internal static class EventOverlayDriver
         }
     }
 
-    /// <summary>事件给的奖励屏幕（如 WELLSPRING 装瓶给药水）：复用战后奖励驱动，等它处理完。</summary>
+    /// <summary>事件给的奖励屏幕（如 WELLSPRING 装瓶给药水、水晶球揭幕）：领完不点 Proceed，
+    /// 事件本体由 EventDriver 继续（战斗流程的 OnCombatVictory 会点 Proceed 提前离房——水晶球 133/139 实证）。</summary>
     private static async Task DriveRewardsAsync(NRewardsScreen screen, CancellationToken token)
     {
-        RewardsScreenDriver.OnCombatVictory();
+        RewardsScreenDriver.OnEventRewards();
         await RunUiHelper.WaitUntilAsync(
             () => !GodotObject.IsInstanceValid(screen) || !screen.IsVisibleInTree()
                   || NOverlayStack.Instance?.Peek() != screen,

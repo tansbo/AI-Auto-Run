@@ -23,12 +23,24 @@ internal static class RewardsScreenDriver
     private static bool _active;
 
     public static void OnCombatVictory()
+        => Start(advanceFromRoom: true);
+
+    /// <summary>
+    /// 事件内奖励屏（水晶球揭幕等子奖励，DriveRewardsAsync 复用）：
+    /// 领完奖励**不点 Proceed**——事件本体还在，离开/选路由 EventDriver 继续处理。
+    /// 复用战斗流程（OnCombatVictory）会点 Proceed 触发离房/地图选路 → 事件未完成即被带离
+    /// （133/139 实证：水晶球"休息后"事件驱动死亡、整局卡死 25min 无遥测）。
+    /// </summary>
+    public static void OnEventRewards()
+        => Start(advanceFromRoom: false);
+
+    private static void Start(bool advanceFromRoom)
     {
         RunAutoSession? session = RunAutoController.Session;
         if (session == null || !RunAutoSettings.Enabled || _active)
             return;
         _active = true;
-        TaskHelper.RunSafely(HandleAsync());
+        TaskHelper.RunSafely(HandleAsync(advanceFromRoom));
     }
 
     private static async Task<bool> TryMakeRoomAndClaimPotionAsync(
@@ -147,7 +159,7 @@ internal static class RewardsScreenDriver
         return !GodotObject.IsInstanceValid(button) || !button.IsInsideTree();
     }
 
-    private static async Task HandleAsync()
+    private static async Task HandleAsync(bool advanceFromRoom)
     {
         try
         {
@@ -228,11 +240,21 @@ internal static class RewardsScreenDriver
                     return;
             }
 
-            NProceedButton? proceed = RunUiHelper.FindFirst<NProceedButton>(screen);
-            if (proceed != null && proceed.IsEnabled)
+            if (advanceFromRoom)
             {
-                session.LogDecision("奖励结算完毕，继续前进");
-                await RunUiHelper.ClickAsync(proceed, 150);
+                // 战斗奖励：全部领完点 Proceed 收尾（离房 → RewardsScreenContinuing → 地图选路）。
+                NProceedButton? proceed = RunUiHelper.FindFirst<NProceedButton>(screen);
+                if (proceed != null && proceed.IsEnabled)
+                {
+                    session.LogDecision("奖励结算完毕，继续前进");
+                    await RunUiHelper.ClickAsync(proceed, 150);
+                }
+            }
+            else
+            {
+                // 事件奖励：领完即回——Proceed 属于事件本体（离开/下一步由 EventDriver 决策），
+                // 这里点它会提前离房/选路导致事件驱动死亡（水晶球 133/139 实证）。
+                session.LogDecision("事件奖励结算完毕，交还事件驱动");
             }
         }
         catch (OperationCanceledException)
