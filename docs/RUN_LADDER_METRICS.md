@@ -41,6 +41,11 @@
   消除 `BuildSpec` 空候选崩溃（108 类 SEARCH_FAILURE 整局卡死）。门禁：Release 0 警告/REFACTOR_BOUNDARIES_OK/ALL_CHARS_OK 5/5。
 - 待修（按优先级，需 fixture 复现后闭环）：
   1. QUEEN sim/live 伤害低估（Vulnerable/Frail 99 层 × 火炬头力量成长在 FORECAST/HP_PREDICTION 中漏乘）——尾王墙主因。
+     证据链：128 局 82HP 进 QUEEN、前 3 回合 26/60/26 格挡扛住，turn4 `HP_PREDICTION planned=1` 实际 82 暴毙；
+     103 局 `planned=9` 实际 26。模拟对 QUEEN 行动/力量成长+99 层 debuff 净伤害估计偏低。已核对
+     MonsterMoveEffects.cs(694-697) 确实施加 99 层 Frail/Weak/Vulnerable；AfterDeathMirrors.cs(63-75) 已处理
+     Amalgam 死后 _hasAmalgamDied+强制 ENRAGE——偏差疑在 Vulnerable 放大乘算门槛（ModifyDamageMirrors 仅
+     IsPoweredAttack 生效）或行动分支预测（IntentForecaster 条件分支近似），需 fixture 逐回合对照定位。
   2. NCard 双重释放（游戏侧 QueueFreeSafely 延迟回调在"奖励→离房→进房"快速切换下双 Free）——房间过渡加帧等待候选。
   3. 106 类 Bolas 回手 DeckVersion 漂移致终态校验误杀（Phases.cs:546）。
 - 观察：DLL 修复后批次完成率 4/10 → 7/10 → 9/10，但胜率受 QUEEN 墙压制在 ~11%，与基础设施完成率解耦。
