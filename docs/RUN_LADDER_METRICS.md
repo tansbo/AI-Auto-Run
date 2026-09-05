@@ -46,6 +46,9 @@
      MonsterMoveEffects.cs(694-697) 确实施加 99 层 Frail/Weak/Vulnerable；AfterDeathMirrors.cs(63-75) 已处理
      Amalgam 死后 _hasAmalgamDied+强制 ENRAGE——偏差疑在 Vulnerable 放大乘算门槛（ModifyDamageMirrors 仅
      IsPoweredAttack 生效）或行动分支预测（IntentForecaster 条件分支近似），需 fixture 逐回合对照定位。
+     128 精确机制：turn4 玩家满 82HP 无格挡手牌，TORCH 单次 TACKLE_3(基础14) 打出 82 = QUEEN 前面多次
+     BURN_BRIGHT(每次给 TORCH +1 力) 已把 TORCH 力量叠高，一次秒杀；模拟 predicted QUEEN 仍为 BUR…(buff)
+     且低估 TORCH 力量累积 → planned=1。修复需验证模拟内 BURN_BRIGHT 力量叠加次数与实机一致。
   2. NCard 双重释放（游戏侧 QueueFreeSafely 延迟回调在"奖励→离房→进房"快速切换下双 Free）——房间过渡加帧等待候选。
   3. 106 类 Bolas 回手 DeckVersion 漂移致终态校验误杀（Phases.cs:546）。
 - 观察：DLL 修复后批次完成率 4/10 → 7/10 → 9/10，但胜率受 QUEEN 墙压制在 ~11%，与基础设施完成率解耦。
