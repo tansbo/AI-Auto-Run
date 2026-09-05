@@ -174,12 +174,28 @@ internal sealed partial class SimulatedCombatState
         PlanChoiceEffect effect = spec?.Effect ?? emptyChoice!.Effect;
         PileType pile = spec?.SourcePile ?? emptyChoice!.SourcePile;
         int count = spec?.MinCount ?? emptyChoice!.Cards.Count;
+        // 无常规 spec、只有"合法空选择"（如 Scavenge/Brand/HiddenDaggers 无可弃/无牌可选时）：
+        // 显式构造 0..0 空 spec 挂到请求上，让下游 BuildSpec 直接返回而不会重算 Options()
+        // 为空抛"无合法候选"（对照 ResolveManualCardChoice 同款配方）。空分支在
+        // ResolveRoundChoiceBranches 里按一次"空选"重放，效果与实机自动打出一致。
+        CardChoiceSpec? requestSpec = spec;
+        if (requestSpec == null)
+        {
+            requestSpec = new CardChoiceSpec(
+                effect,
+                pile,
+                MinCount: 0,
+                MaxCount: 0,
+                Options: [],
+                SourceCards: [],
+                ReplacementValue: 0d);
+        }
         TurnStartChoiceRequest request = new(
             sourceId,
             effect,
             pile,
             count,
-            spec,
+            requestSpec,
             contextId,
             ActiveActionChoiceTiming);
         if (!choices.TryTake(request, out PlanCardChoice? choice))
