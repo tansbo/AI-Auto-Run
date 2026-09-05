@@ -21,6 +21,10 @@ internal static class RoutePlanner
     private const float HpNeutral = 0.55f;
     // 药水保险：每个药水把风险成本除以 (1 + 0.12×数量)（最多按 4 个计）。
     private const float PotionInsurancePer = 0.12f;
+    // 残血精英硬惩罚：低于此血时精英风险额外 ×HpEliteLowMult（残血打精英近乎自杀，A0 实证：
+    // 129/130 中段残血仍选 Elite 导致中低血进 QUEEN_BOSS，即使牌组有格挡引擎也输）。
+    private const float HpEliteLowThreshold = 0.35f;
+    private const float HpEliteLowMult = 1.8f;
 
     /// <summary>
     /// 从当前节点（或开局第 0 行）的候选后继中挑评分最高的一条分支。
@@ -38,19 +42,26 @@ internal static class RoutePlanner
             ? (float)player.Creature.CurrentHp / player.Creature.MaxHp
             : 0.7f;
         int potionCount = player == null ? 0 : Math.Min(player.Potions.Count(), 4);
-        // 战士每场战斗胜利回 6 血：战斗净风险先扣掉战后回血。
+        // 战士每场战斗胜利回 6 血：普通怪战斗净风险扣掉战后回血；精英战掉血大且不带遗物保障，
+        // 6 点回血不抵风险（否则残血精英风险被低估——A0 129/130 实证）。
         float postCombatRegen = (float)RunActContext.PassivePostCombatHeal(player);
 
         var memo = new Dictionary<MapPoint, float>();
         int evaluated = 0;
 
-        float RiskCost(float baseRisk, bool isFight)
+        float RiskCost(float baseRisk, bool isFight, MapPointType type)
         {
             float hpMult = Math.Clamp(1f + (HpNeutral - hpFraction) * 2f, 0.55f, 2.2f);
             float insuranceDiv = 1f + PotionInsurancePer * potionCount;
             float cost = baseRisk * hpMult / insuranceDiv;
             if (isFight)
-                cost -= postCombatRegen;
+            {
+                bool isElite = type == MapPointType.Elite;
+                if (isElite && hpFraction < HpEliteLowThreshold)
+                    cost *= HpEliteLowMult; // 残血精英：风险额外放大，避开"残血撞精英"。
+                if (!isElite)
+                    cost -= postCombatRegen; // 战后回血只抵扣普通怪（精英回血量杯水车薪）。
+            }
             return Math.Max(0.2f, cost);
         }
 
@@ -77,7 +88,7 @@ internal static class RoutePlanner
     private static float ScorePath(
         MapPoint node,
         ActMap map,
-        Func<float, bool, float> riskCost,
+        Func<float, bool, MapPointType, float> riskCost,
         float hpFraction,
         Dictionary<MapPoint, float> memo,
         ref int evaluated,
@@ -99,8 +110,8 @@ internal static class RoutePlanner
 
         float value = type switch
         {
-            MapPointType.Monster => 1.0f - riskCost(3.0f, true),
-            MapPointType.Elite => 3.2f - riskCost(6.5f, true),
+            MapPointType.Monster => 1.0f - riskCost(3.0f, true, MapPointType.Monster),
+            MapPointType.Elite => 3.2f - riskCost(6.5f, true, MapPointType.Elite),
             MapPointType.RestSite => hpFraction < 0.45f ? 3.4f : 1.6f,
             MapPointType.Treasure => 7.0f,
             MapPointType.Shop => 3.8f,
