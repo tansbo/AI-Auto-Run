@@ -77,6 +77,12 @@ internal static class MapRouter
                 return;
             CancellationToken token = session.CancellationToken;
 
+            // 房间过渡帧排空：游戏 QueueFreeSafely 把 NodePool.Free 排到下一帧（CallDeferred），
+            // 我们"奖励→立即离房→马上进下一房"会让上一房间的延迟释放没执行就开新房间 UI
+            // （建卡从同一 NodePool 取用）→ 同一 NCard 被释放两次（122 等 ≥5 局卡死）。
+            // 先停一拍让 deferred 队列跑完，再点地图节点。
+            await Task.Delay(150, token);
+
             NMapPoint? target = null;
             await RunUiHelper.WaitUntilAsync(
                 () => (target = SelectNext()) != null && target.IsEnabled,
