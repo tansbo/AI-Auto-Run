@@ -54,20 +54,32 @@ internal static class EliteProfileCatalog
         new EliteProfile { EncounterId = "ENCOUNTER.PHANTASMAL_GARDENERS_ELITE", NeedsHighSingle = false, NeedsAoe = true, NeedsDefense = true, ExpectedEnemies = 4, Note = "4×PhantasmalGardener(暗港多目标)；需要AOE/清理" },
         new EliteProfile { EncounterId = "ENCOUNTER.SKULKING_COLONY_ELITE", NeedsHighSingle = false, NeedsAoe = false, NeedsDefense = true, ExpectedEnemies = 1, Note = "单体(暗港)；疑似防御/持久压力，待核对出招" },
         new EliteProfile { EncounterId = "ENCOUNTER.TERROR_EEL_ELITE", NeedsHighSingle = true, NeedsAoe = false, NeedsDefense = true, ExpectedEnemies = 1, Note = "单体(暗港)；高伤害单体需求" },
+        // 蜂巢 Hive / 荣耀 Glory（构成=decomp 已核；需求标签 provisional，出招表待核对）
+        new EliteProfile { EncounterId = "ENCOUNTER.DECIMILLIPEDE_ELITE", NeedsHighSingle = true, NeedsAoe = false, NeedsDefense = true, ExpectedEnemies = 3, Note = "3 段节肢(蜂巢链状)；单体斩杀段需求" },
+        new EliteProfile { EncounterId = "ENCOUNTER.ENTOMANCER_ELITE", NeedsHighSingle = true, NeedsAoe = true, NeedsDefense = true, ExpectedEnemies = 1, Note = "Entomancer(蜂巢，疑似召唤，需清场能力待核)" },
+        new EliteProfile { EncounterId = "ENCOUNTER.INFESTED_PRISMS_ELITE", NeedsHighSingle = false, NeedsAoe = true, NeedsDefense = true, ExpectedEnemies = 1, Note = "InfestedPrism(蜂巢，疑似多生成物，待核)" },
+        new EliteProfile { EncounterId = "ENCOUNTER.SOUL_NEXUS_ELITE", NeedsHighSingle = true, NeedsAoe = false, NeedsDefense = true, ExpectedEnemies = 1, Note = "SoulNexus(荣耀单体)" },
+        new EliteProfile { EncounterId = "ENCOUNTER.MECHA_KNIGHT_ELITE", NeedsHighSingle = true, NeedsAoe = false, NeedsDefense = true, ExpectedEnemies = 1, Note = "MechaKnight(荣耀单体/装甲，待核)" },
+        new EliteProfile { EncounterId = "ENCOUNTER.KNIGHTS_ELITE", NeedsHighSingle = false, NeedsAoe = true, NeedsDefense = true, ExpectedEnemies = 3, Note = "3 骑士 Flail/Spectral/Magi(荣耀多目标)；AOE 或定点优先杀待核" },
     };
 
-    /// <summary>按遭遇条目标识或类名取画像（未收录返回 null）。</summary>
+    /// <summary>按遭遇条目标识或类名取画像（未收录返回 null）。
+    /// 实机 Id.Entry 是裸名(如 BYRDONIS_ELITE)，目录键带 ENCOUNTER. 前缀——两种都兼容。</summary>
     public static EliteProfile? Find(string encounterIdOrClass)
     {
-        string key = encounterIdOrClass;
-        if (!key.StartsWith("ENCOUNTER.", StringComparison.OrdinalIgnoreCase))
-        {
-            key = EncounterEntryByClass.TryGetValue(encounterIdOrClass, out string? mapped) ? mapped : encounterIdOrClass;
-        }
+        string key = encounterIdOrClass ?? string.Empty;
+        string prefixed = key.StartsWith("ENCOUNTER.", StringComparison.OrdinalIgnoreCase)
+            ? key
+            : "ENCOUNTER." + key;
+        string classKey = EncounterEntryByClass.TryGetValue(key, out string? mapped) ? mapped : key;
         foreach (EliteProfile profile in All)
         {
-            if (profile.EncounterId.Equals(key, StringComparison.OrdinalIgnoreCase))
+            if (profile.EncounterId.Equals(key, StringComparison.OrdinalIgnoreCase)
+                || profile.EncounterId.Equals(prefixed, StringComparison.OrdinalIgnoreCase)
+                || profile.EncounterId.Equals(classKey, StringComparison.OrdinalIgnoreCase))
+            {
                 return profile;
+            }
         }
         return null;
     }

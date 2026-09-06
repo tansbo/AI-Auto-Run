@@ -28,6 +28,9 @@ internal static class EventDriver
     private static bool _active;
     private static long _lastBeatTick;
 
+    /// <summary>事件驱动当前是否在跑（供 RunAutoController 看门狗判断是否需要重启）。</summary>
+    internal static bool IsActive => _active;
+
     private const int MaxIterations = 300;
 
     public static void OnRoomEntered()

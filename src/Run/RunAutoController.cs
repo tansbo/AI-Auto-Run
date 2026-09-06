@@ -4,6 +4,9 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Saves;
@@ -73,6 +76,52 @@ internal static class RunAutoController
         Entry.Logger.Info(
             $"[RunAuto] RUN_STARTED act={evt.RunState?.CurrentActIndex + 1 ?? 0} " +
             $"floor={evt.RunState?.TotalFloor ?? 0} fast_mode={RunAutoSettings.FastMode}");
+        _ = TaskHelper.RunSafely(RoomDriverWatchdogAsync(_session));
+    }
+
+    /// <summary>
+    /// 房间驱动看门狗（176 实证 BATTLEWORN 等事件战后 EventDriver 静默退出、地图永不开）：
+    /// 事件房仍在场景树、地图未开、无覆盖层/战斗、事件驱动不在跑 → 重启事件驱动。
+    /// 事件驱动 OnRoomEntered 有 _active 去重 + 顶层"地图已开即退出"，重启安全。
+    /// </summary>
+    private static async Task RoomDriverWatchdogAsync(RunAutoSession session)
+    {
+        CancellationToken token = session.CancellationToken;
+        while (true)
+        {
+            try
+            {
+                await Task.Delay(2000, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            try
+            {
+                if (!RunAutoSettings.Enabled || Session != session)
+                    return;
+                if (session.Phase == RunAutoPhase.InCombat)
+                    continue;
+                if (NMapScreen.Instance is { IsOpen: true })
+                    continue;
+                if (CombatManager.Instance.IsInProgress)
+                    continue;
+                if (NOverlayStack.Instance is { ScreenCount: > 0 })
+                    continue;
+                if (EventDriver.IsActive)
+                    continue;
+                Node root = ((SceneTree)Godot.Engine.GetMainLoop()).Root;
+                if (RunUiHelper.FindFirst<NEventRoom>(root) == null)
+                    continue;
+                session.LogDecision("事件看门狗：事件房在但事件驱动不在，重启事件驱动");
+                EventDriver.OnRoomEntered();
+            }
+            catch (Exception ex)
+            {
+                session.LogDecision($"事件看门狗异常：{ex.GetType().Name}");
+            }
+        }
     }
 
     private static void OnRunEnded(RunEndedEvent evt)

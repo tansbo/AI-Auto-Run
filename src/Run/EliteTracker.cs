@@ -26,7 +26,8 @@ internal static class EliteTracker
         int act = runState?.CurrentActIndex ?? -1;
         if (act < 0)
             return;
-        string id = state.Encounter.Id.Entry;
+        string idRaw = state.Encounter.Id.Entry;
+        string id = Normalize(idRaw); // 实机裸名(如 BYRDONIS_ELITE)，个别来源带 ENCOUNTER. 前缀——统一归一。
         string shortName = state.Encounter.GetType().Name;
 
         if (act != session.EliteTrackedAct)
@@ -40,8 +41,8 @@ internal static class EliteTracker
             return; // 同一袋序内重复（不应发生），只记首见。
 
         session.ElitesSeenThisAct.Add(id);
-        session.Telemetry.RecordEliteSeen(id);
-        session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {id} 画像[{EliteProfileCatalog.Describe(id)}]");
+        session.Telemetry.RecordEliteSeen(idRaw);
+        session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {idRaw} 画像[{EliteProfileCatalog.Describe(id)}]");
 
         // 预测已被消费（本场就是预测的那场）：清除，等待下一次可预测状态。
         if (session.PredictedNextElite != null
@@ -67,6 +68,11 @@ internal static class EliteTracker
         }
     }
 
+    private static string Normalize(string entry)
+        => entry.StartsWith("ENCOUNTER.", StringComparison.OrdinalIgnoreCase)
+            ? entry["ENCOUNTER.".Length..]
+            : entry;
+
     /// <summary>本幕精英种集合（decomp ActModel.AllEliteEncounters，正常 3 种）减已见 → 剩余那种。</summary>
     private static string? RemainingEliteOfAct(RunState? runState, List<string> seen)
     {
@@ -76,6 +82,9 @@ internal static class EliteTracker
         {
             string[] actElites = actModel.AllEliteEncounters
                 .Select(static encounter => encounter.Id.Entry)
+                .Select(entry => entry.StartsWith("ENCOUNTER.", StringComparison.OrdinalIgnoreCase)
+                    ? entry["ENCOUNTER.".Length..]
+                    : entry)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
             if (actElites.Length < 2)
