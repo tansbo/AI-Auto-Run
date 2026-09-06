@@ -54,6 +54,15 @@ internal sealed class RunAutoSession
     /// <summary>渠道演示脚手架：已完成强制遗物获得的幕索引（每幕一次，防重复获得）。</summary>
     public HashSet<int> ForceRelicActsDone { get; } = [];
 
+    /// <summary>精英追踪（袋内不重复机制，用户规则 2026-09-06）：当前追踪的幕索引。</summary>
+    public int EliteTrackedAct { get; set; } = -1;
+
+    /// <summary>本幕已遇见的精英（按袋序首次出现记录，去重后 ≤3）。</summary>
+    public List<string> ElitesSeenThisAct { get; } = [];
+
+    /// <summary>预测的下一精英（见过 2 种后 = 本幕第三种；否则 null）。</summary>
+    public string? PredictedNextElite { get; set; }
+
     /// <summary>跑局级取消令牌：跑局结束（RunEndedEvent）时取消，各驱动用它提前退出。</summary>
     public CancellationToken CancellationToken { get; } = new CancellationTokenSource().Token;
 

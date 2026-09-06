@@ -39,7 +39,12 @@ internal sealed class RunTelemetryData
     /// <summary>本局最终获得的遗物（奖励/宝箱/事件/先古），供"遗物×胜负"语料校准。</summary>
     public List<string> RelicIds { get; } = [];
 
+    /// <summary>本局遇见的精英遭遇（按袋序首次出现，ENCOUNTER.*_ELITE），供关联分析精英强度/轮换。</summary>
+    public List<string> EliteSeenIds { get; } = [];
+
     public void RecordRelicObtained(string relicId) => RelicIds.Add(relicId);
+
+    public void RecordEliteSeen(string encounterId) => EliteSeenIds.Add(encounterId);
 
     public void RecordPick(
         RunState? runState,

@@ -214,6 +214,8 @@ internal static class RunAutoController
         session.Phase = RunAutoPhase.InCombat;
         if (evt.CombatState is CombatState combatState)
         {
+            // 精英追踪：记录本幕精英袋序（袋内不重复 → 见过 2 种可预测第 3 场）。
+            EliteTracker.RecordCombatStart(session, combatState);
             session.LogDecision("进入战斗，等待战斗求解器全自动接管");
             // 战斗开始瞬间玩家回合尚未进入 Play，SetFullAuto 会被 CanSolve 拒绝；
             // 轮询到玩家可出牌后重试开启，headless 整局与 visible 全自动跑局都依赖它。
