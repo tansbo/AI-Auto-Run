@@ -1345,3 +1345,9 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
 - 火炬头死亡(AfterDeath): HasAmalgamDied=true；若下行动为 BURN_BRIGHT 状态则 SetMoveImmediate(ENRAGE(+2力))。
 - 分支(amalgam死)后: OFF_WITH_YOUR_HEAD(3伤×5=15)+EXECUTION(15)+ENRAGE 循环。
 - t3 峰值18-36与 '易伤×脆弱×叠力爆发' 自洽。后续 L1 假设实验：'早期杀火炬头(断+1力泵) vs 留活口' 对照。
+
+## 2026-09-06 QUEEN v4 战斗细读：火炬头是第二攻击手
+- FORECAST t6: TORCH_HEAD_AMALGAM BEAM_MOVE 多段8伤×N + QUEEN BURN_BRIGHT；我们2-6回合连点火炬头
+  未杀(火力不足/分散)，女王持续给它叠力 → 双威胁败亡。
+- 推论：Boss 战解法= 前期集中单体尽快杀火炬头(断力泵+少一个8伤射手) 或高伤AOE；属牌组强度×执行，
+  求解器未见明显误排。后续实机 deck 取向信号：act3 前单体斩杀/集中火力的卡价值上调依据。
