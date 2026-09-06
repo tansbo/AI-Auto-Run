@@ -43,6 +43,13 @@ internal static class EliteTracker
         session.Telemetry.RecordEliteSeen(id);
         session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {id} 画像[{EliteProfileCatalog.Describe(id)}]");
 
+        // 预测已被消费（本场就是预测的那场）：清除，等待下一次可预测状态。
+        if (session.PredictedNextElite != null
+            && session.PredictedNextElite.Equals(id, StringComparison.Ordinal))
+        {
+            session.PredictedNextElite = null;
+        }
+
         // 袋内不重复：见过 2 种 → 第 3 场必是剩余那种（本幕仅 3 种精英）。
         if (session.ElitesSeenThisAct.Count == 2)
         {
@@ -53,9 +60,10 @@ internal static class EliteTracker
                 session.LogDecision($"精英预测：本幕已见 2 种，下场精英必为 {remaining} 画像[{EliteProfileCatalog.Describe(remaining)}]");
             }
         }
-        else if (session.ElitesSeenThisAct.Count == 1)
+        else if (session.ElitesSeenThisAct.Count >= 3)
         {
-            session.LogDecision($"精英预测：本幕首见精英，余下两种各半（双预案备战）");
+            // 本幕三种精英都见过：袋已重置，下一场从三种随机（无预测）。
+            session.PredictedNextElite = null;
         }
     }
 

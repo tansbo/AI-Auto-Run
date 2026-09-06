@@ -46,6 +46,18 @@ internal static class RoutePlanner
         // 6 点回血不抵风险（否则残血精英风险被低估——A0 129/130 实证）。
         float postCombatRegen = (float)RunActContext.PassivePostCombatHeal(player);
 
+        // 前方窗口（精英追踪）：见过 2 种精英后第 3 场必是剩余那种（袋内不重复，decomp 实证）——
+        // 此时任何精英节点 = 预测画像那场。防御型(持久战)且血不健康 → 精英风险追加，
+        // 倾向先去篝火/商店再打（启发式，画像/匹配度待数据校准）。
+        EliteProfile? nextEliteProfile = null;
+        RunAutoSession? session = RunAutoController.Session;
+        if (session?.PredictedNextElite != null)
+        {
+            EliteProfile? profile = EliteProfileCatalog.Find(session.PredictedNextElite);
+            if (profile != null && profile.NeedsDefense)
+                nextEliteProfile = profile;
+        }
+
         var memo = new Dictionary<MapPoint, float>();
         int evaluated = 0;
 
@@ -59,6 +71,11 @@ internal static class RoutePlanner
                 bool isElite = type == MapPointType.Elite;
                 if (isElite && hpFraction < HpEliteLowThreshold)
                     cost *= HpEliteLowMult; // 残血精英：风险额外放大，避开"残血撞精英"。
+                if (isElite && nextEliteProfile != null && hpFraction < 0.60f)
+                {
+                    // 预测下一场为防御型(持久战)精英且血不健康：风险追加，先补给再上。
+                    cost *= 1.3f;
+                }
                 if (!isElite)
                     cost -= postCombatRegen; // 战后回血只抵扣普通怪（精英回血量杯水车薪）。
             }
