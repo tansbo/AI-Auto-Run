@@ -252,8 +252,35 @@ internal static class RewardsScreenDriver
             }
             else
             {
-                // 事件奖励：领完即回——Proceed 属于事件本体（离开/下一步由 EventDriver 决策），
-                // 这里点它会提前离房/选路导致事件驱动死亡（水晶球 133/139 实证）。
+                // 事件内奖励屏：领完即回——Proceed 属事件本体（离开/下一步由 EventDriver 决策），
+                // 战斗流程的 OnCombatVictory 会点 Proceed 提前离房/选路导致事件驱动死亡（133/139 旧实证）。
+                // 但若有"跳过/未领"奖励遗留（如栏位满被跳过的药水，OfferCustom 不会自动关屏），
+                // 必须点 Proceed(=Skip 剩余) 收尾关屏——否则 OfferCustom 永不结束、事件不完成、
+                // 地图不开（133 实证：奖励后 mapOpen=False ×5 轮 30s 重试整局卡死）。
+                // 此 Proceed 只跳过剩余奖励并关屏（非 terminal 路径），不会触发离房/选路。
+                if (GodotObject.IsInstanceValid(screen) && screen.IsVisibleInTree())
+                {
+                    NProceedButton? skipRemaining = RunUiHelper.FindFirst<NProceedButton>(screen);
+                    if (skipRemaining != null && skipRemaining.IsEnabled)
+                    {
+                        session.LogDecision("事件奖励收尾：有遗留跳过奖励，点跳过剩余关屏");
+                        await RunUiHelper.ClickAsync(skipRemaining, 150);
+                        try
+                        {
+                            await RunUiHelper.WaitUntilAsync(
+                                () => !GodotObject.IsInstanceValid(screen)
+                                      || !screen.IsVisibleInTree()
+                                      || NOverlayStack.Instance?.Peek() != screen,
+                                token,
+                                TimeSpan.FromSeconds(10),
+                                "事件奖励屏跳过未关屏");
+                        }
+                        catch (RunAutoTimeoutException)
+                        {
+                            session.LogDecision("事件奖励屏跳过后未自动关屏（留给 EventDriver 兜底）");
+                        }
+                    }
+                }
                 session.LogDecision("事件奖励结算完毕，交还事件驱动");
             }
         }
