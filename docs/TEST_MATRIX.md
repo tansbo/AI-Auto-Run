@@ -1270,3 +1270,9 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 - `RID/resources still in use at exit` 当前记录为 Godot 退出噪音；任何 `CombatSolver/Unattended FAILED`、`SEARCH_FAILURE`、`DEPLOY_FAILURE` 或状态断言失败均判定场景失败。
 
 
+
+## 2026-09-06 RNG 顺序保真（L1，短搜 8s，StopAfterInitial）
+| Scenario | 断言 | 结果 |
+|---|---|---|
+| RNG-ORDER-DISCOVERY-POTION-0170 | 首选动作 DISCOVERY（同种子有 Discovery 时布点优于立即用药） | Passed |
+| RNG-ORDER-POTION-FIRST-0170 | 首选动作 ATTACK_POTION（无 Discovery 时药水直用） | Passed |

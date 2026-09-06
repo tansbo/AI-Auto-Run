@@ -1296,3 +1296,13 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
 - `0.5.5`：逐张标注击杀，绿色标注战斗结束回合。
 - 更早版本：完成异步搜索、自动回合搜索、路线执行、动态洗牌边界、选牌支持、卖血权重、UI 覆盖层和模型覆盖诊断。
 
+
+## 2026-09-06 RNG 药水布点验证（L1 夹具成对，无源码改动）
+- 意图：同局面同种子下，动作顺序改变 CombatCardGeneration 的 roll 窗口；搜索按价值择优，
+  不机械"有药就喝"。验证层面：搜索镜像同流推进 + 原生三选一按计划点选 + 首选动作断言。
+- 新增 coverage/unattended/rng-order-discovery-potion-0170.json（手牌 Discovery+4打击+攻击药水，
+  首选动作=DISCOVERY：布点免费线优于立即用药）与 rng-order-potion-first-0170.json（同种子去掉
+  Discovery，首选动作=ATTACK_POTION）。种子 SETUPORDER02、FUZZY_WURM_CRAWLER_WEAK hp200。
+- 实测：F1/F2 均 PASSED（ps1 直跑断言）。观察：Discovery 窗口 roll→THRASH；药水直用窗口→IRON_WAVE。
+- 未验证/边界：药水"主动布点容忍战损"策略旋钮(SolverPotionPolicy)未加（下阶段）；熵走
+  CombatCardSelection 分流，调制不了攻击药水（需 Discovery 等同流效果）。

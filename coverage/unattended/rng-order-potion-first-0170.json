@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "RNG-ORDER-POTION-FIRST-0170",
+  "characterId": "IRONCLAD",
+  "encounterId": "FUZZY_WURM_CRAWLER_WEAK",
+  "seed": "SETUPORDER02",
+  "enemyCurrentHp": 200,
+  "initialPlayerHp": 50,
+  "initialPlayerEnergy": 3,
+  "clearPlayerHand": true,
+  "clearPlayerPiles": true,
+  "cards": [
+    { "cardId": "STRIKE_IRONCLAD", "pile": "Hand", "count": 5 }
+  ],
+  "potions": [{ "potionId": "POTION.ATTACK_POTION" }],
+  "forceShortSearchOnly": true,
+  "shortSearchBudgetOverrideMilliseconds": 8000,
+  "expectedInitialFirstActionPotionId": "ATTACK_POTION",
+  "stopAfterInitialSolverResultAssertion": true,
+  "timeoutSeconds": 150
+}
