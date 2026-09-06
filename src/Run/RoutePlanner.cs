@@ -110,10 +110,12 @@ internal static class RoutePlanner
 
         float value = type switch
         {
+            // 价值启发式（A0 40 局校准）：低遗物局(3-8)大量集中在输局，赢局多数 10+ 遗物
+            // → 健康时提高精英倾向（遗物/稀有卡主源）；Treasure 单遗物降值。残血由 RiskCost 压回。
             MapPointType.Monster => 1.0f - riskCost(3.0f, true, MapPointType.Monster),
-            MapPointType.Elite => 3.2f - riskCost(6.5f, true, MapPointType.Elite),
+            MapPointType.Elite => 6.0f - riskCost(6.5f, true, MapPointType.Elite),
             MapPointType.RestSite => hpFraction < 0.45f ? 3.4f : 1.6f,
-            MapPointType.Treasure => 7.0f,
+            MapPointType.Treasure => 5.5f,
             MapPointType.Shop => 3.8f,
             _ => 0.4f, // 事件等中性/未知类型给小幅方差价值。
         };
