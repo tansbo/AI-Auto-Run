@@ -167,6 +167,16 @@ try {
                 }
             }
 
+            # 本局游戏日志归档：每局进程写同一 godot-headless.log，进程退出后内容即本局，
+            # 复制留档便于日后按败局复盘（死亡房/回合/HP 现场）。见 TEST_MATRIX 败局分析。
+            $gameLog = Join-Path $headlessRoot "godot-headless.log"
+            if (Test-Path -LiteralPath $gameLog) {
+                $safeSeedLog = $seed -replace '[^A-Za-z0-9._-]', '_'
+                $logDest = Join-Path $CollectRoot "${safeSeedLog}__run${run}.log"
+                Copy-Item -LiteralPath $gameLog -Destination $logDest -Force
+                $entry.log = Split-Path -Leaf $logDest
+            }
+
             $summary.Add([pscustomobject]$entry)
             Write-Host ("  -> " + ($entry | ConvertTo-Json -Compress))
         }
