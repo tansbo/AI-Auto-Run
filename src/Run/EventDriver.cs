@@ -105,6 +105,11 @@ internal static class EventDriver
                 {
                     if (!await EventOverlayDriver.DriveAsync(token))
                     {
+                        // 诊断：打印顶层覆盖层类型，定位"水晶球服务结束/未知屏"卡死的真实 UI 状态。
+                        string topDesc = NOverlayStack.Instance?.Peek()?.GetType().Name ?? "null";
+                        int depth = NOverlayStack.Instance?.ScreenCount ?? 0;
+                        RunAutoController.Session?.LogDecision(
+                            $"事件覆盖层未识别：top={topDesc} depth={depth}");
                         await RunUiHelper.WaitUntilAsync(
                             () => NOverlayStack.Instance is { ScreenCount: 0 },
                             token,
