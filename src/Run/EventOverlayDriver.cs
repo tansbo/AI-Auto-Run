@@ -82,17 +82,62 @@ internal static class EventOverlayDriver
         }
     }
 
-    /// <summary>事件给的奖励屏幕（如 WELLSPRING 装瓶给药水、水晶球揭幕）：领完不点 Proceed，
-    /// 事件本体由 EventDriver 继续（战斗流程的 OnCombatVictory 会点 Proceed 提前离房——水晶球 133/139 实证）。</summary>
+    /// <summary>事件给的奖励屏幕（如 WELLSPRING 装瓶给药水、水晶球揭幕、THE_FUTURE_OF_POTIONS）：
+    /// 先让事件奖励 worker(OnEventRewards)处理。worker 可能因'子屏幕超时'提前返回、屏仍残留且
+    /// Proceed 可用（w4 seed226 实证 overlayTop=NRewardsScreen/1 enabledProceed=1 卡死），此处兜底。
+    /// 但 worker 活跃且最近有推进时**不点 Proceed**：其等待都有界（腾栏喝药等动作队列 ≤10s、
+    /// 子屏关闭 ≤10s），点早了会跳过正在领取的奖励（净亏药水/卡）。只有 worker 已退出或停摆
+    /// （无推进超阈值）才兜底点 Proceed 收尾（SkipLocalRewards 关屏，非 terminal 不触发离房）。
+    /// 返回后由 EventDriver 主循环按需再驱动，全程不阻塞 EventDriver 超时。</summary>
     private static async Task DriveRewardsAsync(NRewardsScreen screen, CancellationToken token)
     {
+        RunAutoController.Session?.LogDecision("覆盖层奖励屏驱动开始（EventOverlayDriver）");
         RewardsScreenDriver.OnEventRewards();
-        await RunUiHelper.WaitUntilAsync(
-            () => !GodotObject.IsInstanceValid(screen) || !screen.IsVisibleInTree()
-                  || NOverlayStack.Instance?.Peek() != screen,
-            token,
-            TimeSpan.FromSeconds(30),
-            "事件奖励屏幕未处理完");
+        if (await TryWaitRewardsClosedAsync(screen, token, "事件奖励屏幕未处理完", TimeSpan.FromSeconds(6)))
+            return;
+
+        bool workerProgressing = RewardsScreenDriver.IsWorkerActive
+            && System.Environment.TickCount64 - RewardsScreenDriver.LastProgressTick < 12_000;
+        if (workerProgressing)
+        {
+            // worker 仍在正常干活（如满栏腾栏/等子屏回来）：给完整处理窗口，不介入。
+            RunAutoController.Session?.LogDecision("覆盖层奖励：worker 活跃推进中，延长等待不介入");
+            if (await TryWaitRewardsClosedAsync(screen, token, "事件奖励屏幕未处理完", TimeSpan.FromSeconds(9)))
+                return;
+        }
+
+        RunAutoController.Session?.LogDecision($"覆盖层奖励：worker 未推进，top={NOverlayStack.Instance?.Peek()?.GetType().Name}");
+        if (!GodotObject.IsInstanceValid(screen) || !screen.IsVisibleInTree())
+            return;
+        NProceedButton? proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+        if (proceed != null && proceed.IsEnabled)
+        {
+            RunAutoController.Session?.LogDecision("事件奖励屏兜底：worker 未收尾，点 Proceed 跳过残留奖励");
+            await RunUiHelper.ClickAsync(proceed, 150);
+        }
+        try
+        {
+            await WaitUntilClosed(screen, token, "事件奖励屏幕未处理完");
+        }
+        catch (RunAutoTimeoutException)
+        {
+            RunAutoController.Session?.LogDecision("事件奖励屏兜底后仍未关闭（交还 EventDriver 再试）");
+        }
+    }
+
+    /// <summary>等奖励屏关闭：关闭返回 true；超时返回 false（不抛，调用方决定下一步）。</summary>
+    private static async Task<bool> TryWaitRewardsClosedAsync(
+        NRewardsScreen screen, CancellationToken token, string message, TimeSpan timeout)
+    {
+        try
+        {
+            await WaitUntilClosed(screen, token, message, timeout);
+            return true;
+        }
+        catch (RunAutoTimeoutException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -662,13 +707,17 @@ internal static class EventOverlayDriver
     }
 
     /// <summary>等覆盖层被处理掉（屏幕释放/移出树/顶部换成别的）。</summary>
-    private static async Task WaitUntilClosed(CanvasItem screen, CancellationToken token, string message)
+    private static async Task WaitUntilClosed(
+        CanvasItem screen,
+        CancellationToken token,
+        string message,
+        TimeSpan? timeout = null)
     {
         await RunUiHelper.WaitUntilAsync(
             () => !GodotObject.IsInstanceValid(screen) || !screen.IsVisibleInTree()
                   || NOverlayStack.Instance?.Peek() != screen,
             token,
-            TimeSpan.FromSeconds(15),
+            timeout ?? TimeSpan.FromSeconds(15),
             message);
     }
 }

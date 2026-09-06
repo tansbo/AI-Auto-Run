@@ -21,6 +21,7 @@ namespace CombatSolver.Run;
 internal static class RewardsScreenDriver
 {
     private static bool _active;
+    private static long _lastProgressTick;  // worker 最近一次实际推进时刻（看门狗/兜底判定"停摆"用）
 
     public static void OnCombatVictory()
         => Start(advanceFromRoom: true);
@@ -34,12 +35,26 @@ internal static class RewardsScreenDriver
     public static void OnEventRewards()
         => Start(advanceFromRoom: false);
 
+    /// <summary>奖励 worker 是否正在跑（供看门狗/EventOverlayDriver 区分"健康处理中"与"已退出/停摆"）。</summary>
+    internal static bool IsWorkerActive => _active;
+
+    /// <summary>worker 最近一次实际推进的时刻（领奖点击/腾栏/收尾点击），毫秒。</summary>
+    internal static long LastProgressTick => _lastProgressTick;
+
+    private static void MarkProgress() => _lastProgressTick = System.Environment.TickCount64;
+
     private static void Start(bool advanceFromRoom)
     {
         RunAutoSession? session = RunAutoController.Session;
         if (session == null || !RunAutoSettings.Enabled || _active)
+        {
+            if (_active)
+                session?.LogDecision($"奖励 worker 已在跑，忽略新请求(advance={advanceFromRoom})");
             return;
+        }
         _active = true;
+        MarkProgress();
+        session.LogDecision($"奖励 worker 启动 advance={advanceFromRoom}");
         TaskHelper.RunSafely(HandleAsync(advanceFromRoom));
     }
 
@@ -120,6 +135,7 @@ internal static class RewardsScreenDriver
             {
                 await PotionCmd.Discard(plan.ToRemove);
             }
+            MarkProgress();
         }
 
         if (!player.HasOpenPotionSlots)
@@ -138,6 +154,7 @@ internal static class RewardsScreenDriver
         RunAutoSettings.DemoShot("potion");
         await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：奖励屏留屏
         await RunUiHelper.ClickAsync(button, 200);
+        MarkProgress();
         // 药水领取不打开子覆盖层：成功 = 按钮被消耗移除（或整屏关闭/跑局结束），
         // 失败（如 TooFull 拒绝）会保留启用按钮 —— 10s 内没移除即视为未领到。
         try
@@ -175,6 +192,7 @@ internal static class RewardsScreenDriver
                 token,
                 TimeSpan.FromSeconds(15),
                 "战后奖励屏幕未出现");
+            MarkProgress();
 
             var attemptedButtons = new HashSet<NRewardButton>();
             while (true)
@@ -216,6 +234,7 @@ internal static class RewardsScreenDriver
                 RunAutoSettings.DemoShot("reward");
                 await RunAutoSettings.HoldForDemoAsync(token); // 演示定格：奖励/选牌入口留屏
                 await RunUiHelper.ClickAsync(button, 200);
+                MarkProgress();
 
                 // 子覆盖层（如卡牌奖励）打开时，等它关闭、覆盖层顶部回到本奖励屏再继续。
                 // 完成信号用 OR 覆盖两条路径（反编译 CardRewardAlternative/NRewardsScreen 确认）：
@@ -248,6 +267,7 @@ internal static class RewardsScreenDriver
                 {
                     session.LogDecision("奖励结算完毕，继续前进");
                     await RunUiHelper.ClickAsync(proceed, 150);
+                    MarkProgress();
                 }
             }
             else
@@ -265,6 +285,7 @@ internal static class RewardsScreenDriver
                     {
                         session.LogDecision("事件奖励收尾：有遗留跳过奖励，点跳过剩余关屏");
                         await RunUiHelper.ClickAsync(skipRemaining, 150);
+                        MarkProgress();
                         try
                         {
                             await RunUiHelper.WaitUntilAsync(

@@ -1282,3 +1282,10 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 |---|---|---|
 | RNG-WINDOW-SETUP-DISCOVERY-0170 | Discovery+4防御+药水：首选 DISCOVERY(布点→药水roll UPPERCUT) | Passed |
 | RNG-WINDOW-CTRL-NODISCOVERY-0170 | 同种子 5防御+药水：首选 DEFEND(药水原窗口 roll HEMOKINESIS) | Passed |
+
+## 2026-09-06 奖励残留防护批：两轮长 headless 零回归（seed COMBATSOLVER）
+| Scenario | 局面 | 结果 |
+|---|---|---|
+| LONG-RUN-360S | 360s 截断时跑到 Act2 第 23 房仍健康；看门狗介入 0、奖励兜底 0、选路超时 0 | Passed（截断，跑局未结束） |
+| LONG-RUN-540S | 540s 截断时 Act2 Boss 第 33 房仍在打；同上 0 介入 | Passed（截断，跑局未结束） |
+| 备注 | seed COMBATSOLVER 现能过 Act1 Boss → 固定时长整局冒烟无法"跑完"，改由 headless 可观测/自动续局机制覆盖 | — |

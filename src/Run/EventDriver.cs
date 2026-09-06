@@ -187,6 +187,31 @@ internal static class EventDriver
                 }
                 if (options.Count == 0)
                 {
+                    // 事件收尾页常无 EventOption 而是房间级离开钮（FakeMerchant 同款 NProceedButton）：
+                    // 先点它离开（THE_FUTURE 等收尾页，226 实证 rewards 移除后仍无选项卡死）。
+                    bool clickedLeave = false;
+                    if (NOverlayStack.Instance is not { ScreenCount: > 0 }
+                        && NMapScreen.Instance is not { IsOpen: true }
+                        && !CombatManager.Instance.IsInProgress)
+                    {
+                        NProceedButton? roomLeave = null;
+                        foreach (NProceedButton button in RunUiHelper.FindAll<NProceedButton>(room))
+                        {
+                            if (button.Visible && button.IsEnabled)
+                            {
+                                roomLeave = button;
+                                break;
+                            }
+                        }
+                        if (roomLeave != null)
+                        {
+                            session.LogDecision("事件选项空但房间有可用离开钮，点离开收尾");
+                            await RunUiHelper.ClickAsync(roomLeave, 200);
+                            clickedLeave = true;
+                        }
+                    }
+                    if (clickedLeave)
+                        continue;
                     // 事件 UI 还没就绪。之前只 delay 200ms 快速空转，MaxIterations=50 约 10s 就
                     // 静默放弃，headless 下事件场景加载慢/未完成时会把跑局永久卡死在事件房。
                     // 改为有界等待（可点选项/远古对话可翻页/地图/战斗/覆盖层/房间消失任一即恢复），

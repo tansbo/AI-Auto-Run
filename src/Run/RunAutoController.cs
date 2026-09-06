@@ -4,7 +4,10 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Rooms;
@@ -33,6 +36,8 @@ internal static class RunAutoController
     private static readonly object Sync = new();
     private static RunAutoSession? _session;
     private static FastModeType? _originalFastMode;
+    private static ulong _lastStuckTopId;   // 看门狗：上次卡住覆盖层实例 id
+    private static int _stuckTicks;         // 看门狗：同一覆盖层卡住 tick 数（约 2s/tick）
 
     /// <summary>当前跑局会话；没有活动跑局时为 null。</summary>
     public static RunAutoSession? Session
@@ -107,6 +112,91 @@ internal static class RunAutoController
                     continue;
                 if (CombatManager.Instance.IsInProgress)
                     continue;
+                // 事件奖励屏残留收尾升级（EventDriver/worker 可能互锁停住）：
+                // 同一残留屏(栈顶) + 地图未开持续 ≥6 tick(12s) → 点 Proceed；≥12 tick(24s) → 显式移除覆盖层。
+                if (NOverlayStack.Instance?.Peek() is MegaCrit.Sts2.Core.Nodes.Screens.NRewardsScreen rewardsLeft
+                    && rewardsLeft.IsVisibleInTree())
+                {
+                    ulong inst = rewardsLeft.GetInstanceId();
+                    if (_lastStuckTopId != inst)
+                    {
+                        _lastStuckTopId = inst;
+                        _stuckTicks = 0;
+                    }
+                    // 奖励 worker 活跃且近 20s 内有实际推进 → 健康处理中（战后奖励结算同样经过这里，
+                    // 常见一屏多个奖励/卡牌子屏可合法 >12s）：不累计、不介入。worker 的等待都有界
+                    // （腾栏/子屏 ≤10s），真死锁会在其超时退出后由本看门狗接管，无需抢跑。
+                    if (RewardsScreenDriver.IsWorkerActive
+                        && System.Environment.TickCount64 - RewardsScreenDriver.LastProgressTick < 20_000)
+                    {
+                        _stuckTicks = 0;
+                        continue;
+                    }
+                    _stuckTicks++;
+                    var p = rewardsLeft.GetNodeOrNull<NProceedButton>("%ProceedButton");
+                    if (_stuckTicks >= 6 && _stuckTicks < 12 && p != null && p.IsEnabled)
+                    {
+                        session.LogDecision($"事件看门狗：奖励屏残留 {_stuckTicks}tick，点 Proceed 收尾");
+                        await RunUiHelper.ClickAsync(p, 150);
+                    }
+                    else if (_stuckTicks >= 12)
+                    {
+                        if (_stuckTicks % 3 == 0 && p != null && p.IsEnabled)
+                        {
+                            session.LogDecision($"事件看门狗：奖励屏残留 {_stuckTicks}tick 仍卡，再点 Proceed");
+                            await RunUiHelper.ClickAsync(p, 150);
+                        }
+                        if (_stuckTicks >= 21)
+                        {
+                            session.LogDecision("事件看门狗：奖励屏 21tick 仍未关，显式移除覆盖层");
+                            NOverlayStack.Instance?.Remove(rewardsLeft);
+                            _lastStuckTopId = 0;
+                            _stuckTicks = 0;
+                        }
+                    }
+                    continue;
+                }
+                _lastStuckTopId = 0;
+                _stuckTicks = 0;
+                // 事件完成页残留（THE_FUTURE DONE 等）：无覆盖层且事件房在但驱动处理不掉 → 点可用按钮离开。
+                // 优先房间级 NProceedButton（完成页离开钮）；没有才退化到任意可用 NButton——注意
+                // NEventOptionButton 也是 NButton，盲点第一个会绕过 ChooseOption 的杀玩家排除/价值评分。
+                if (NOverlayStack.Instance is not { ScreenCount: > 0 }
+                    && !EventDriver.IsActive
+                    && RunUiHelper.FindFirst<NEventRoom>(((SceneTree)Godot.Engine.GetMainLoop()).Root) is { } eventRoomLeft)
+                {
+                    _stuckTicks++;
+                    if (_stuckTicks >= 6 && _stuckTicks % 2 == 0)
+                    {
+                        NButton? leaveButton = null;
+                        foreach (NProceedButton pb in RunUiHelper.FindAll<NProceedButton>(eventRoomLeft))
+                        {
+                            if (pb.Visible && pb.IsEnabled)
+                            {
+                                leaveButton = pb;
+                                break;
+                            }
+                        }
+                        if (leaveButton == null)
+                        {
+                            foreach (NButton b in RunUiHelper.FindAll<NButton>(eventRoomLeft))
+                            {
+                                if (b.Visible && b.IsEnabled)
+                                {
+                                    leaveButton = b;
+                                    break;
+                                }
+                            }
+                        }
+                        if (leaveButton != null)
+                        {
+                            session.LogDecision($"事件看门狗：事件完成页残留 {_stuckTicks}tick，点 {leaveButton.GetType().Name} 离开");
+                            await RunUiHelper.ClickAsync(leaveButton, 150);
+                        }
+                    }
+                    continue;
+                }
+                _stuckTicks = 0;
                 if (NOverlayStack.Instance is { ScreenCount: > 0 })
                     continue;
                 if (EventDriver.IsActive)

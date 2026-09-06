@@ -271,6 +271,22 @@ internal static class MapRouter
             string ev = RunUiHelper.FindFirst<MegaCrit.Sts2.Core.Nodes.Rooms.NEventRoom>(root) is { } room
                 ? $"eventRoom(children={room.GetChildCount()})"
                 : "noEventRoom";
+            string evDetail = "";
+            if (RunUiHelper.FindFirst<MegaCrit.Sts2.Core.Nodes.Rooms.NEventRoom>(root) is { } room2)
+            {
+                var names = new List<string>();
+                foreach (Godot.Node child in room2.GetChildren())
+                    names.Add(child.GetType().Name);
+                int enabledButtons = 0;
+                int allButtons = 0;
+                foreach (NProceedButton b in RunUiHelper.FindAll<NProceedButton>(root))
+                {
+                    allButtons++;
+                    if (b.Visible && b.IsEnabled)
+                        enabledButtons++;
+                }
+                evDetail = $" children=[{string.Join(",", names.Take(6))}] proceed(all={allButtons},enabled={enabledButtons})";
+            }
             int proceeds = 0;
             foreach (NProceedButton p in RunUiHelper.FindAll<NProceedButton>(root))
             {
@@ -278,7 +294,7 @@ internal static class MapRouter
                     proceeds++;
             }
             string map = NMapScreen.Instance == null ? "null" : NMapScreen.Instance.IsOpen ? "open" : "closed";
-            return $"map={map} {ev} overlayTop={overlayTop}/{overlayN} enabledProceed={proceeds}";
+            return $"map={map} {ev}{evDetail} overlayTop={overlayTop}/{overlayN} enabledProceed={proceeds}";
         }
         catch (Exception ex)
         {
