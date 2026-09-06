@@ -85,7 +85,13 @@ internal static class EventDriver
                 if (!GodotObject.IsInstanceValid(room) || !room.IsInsideTree())
                     return;
                 if (NMapScreen.Instance is { IsOpen: true })
+                {
+                    // 事件自收尾把地图打开（水晶球 OfferCustom 等奖励屏关掉后事件即结束开图）：
+                    // 这里可能没有"选项→地图"的显式路径，补一次选路请求。
+                    // 若 NMapScreenPatch 已在路由则去重/排队重试（有界），不会重复选路。
+                    MapRouter.RequestRoute();
                     return;
+                }
 
                 // 事件触发的战斗：交给战斗求解器，等打完再继续。
                 if (CombatManager.Instance.IsInProgress)

@@ -19,10 +19,17 @@ internal static class MapRouter
     private static bool _routingActive;
     private static bool _retryScheduled;
     private static long _routingStartedTick;
+    private static int _noNodeRetries;      // 同一段"选不到前进节点"的重试数（防死循环）
+    private static long _lastNullLogTick;   // SelectNext 空因诊断日志节流
 
     private static TaskCompletionSource? _roomEnteredTcs;
 
     public static void RequestRoute()
+    {
+        RouteInternal(resetRetries: true);
+    }
+
+    private static void RouteInternal(bool resetRetries)
     {
         RunAutoSession? session = RunAutoController.Session;
         if (session == null || !RunAutoSettings.Enabled)
@@ -39,26 +46,28 @@ internal static class MapRouter
             else if (!_retryScheduled)
             {
                 // 挂起一次延迟重试：上一轮结束后（或看门狗复位后）本请求能补跑，
-                // 避免 FakeMerchant 等"事件开图"的路由请求被永久丢弃。
+                // 避免 FakeMerchant/水晶球等"事件开图"的路由请求被永久丢弃。
                 _retryScheduled = true;
-                TaskHelper.RunSafely(RetryRouteAsync());
+                TaskHelper.RunSafely(RetryAfterAsync(3000, resetRetries: false));
             }
             return;
         }
+        if (resetRetries)
+            _noNodeRetries = 0;
         StartRouting();
     }
 
-    private static async Task RetryRouteAsync()
+    private static async Task RetryAfterAsync(int delayMs, bool resetRetries)
     {
         try
         {
-            await Task.Delay(3000);
+            await Task.Delay(delayMs);
         }
         finally
         {
             _retryScheduled = false;
         }
-        RequestRoute();
+        RouteInternal(resetRetries);
     }
 
     private static void StartRouting()
@@ -91,6 +100,7 @@ internal static class MapRouter
                 "地图可前进节点未出现");
             if (target == null)
                 return;
+            _noNodeRetries = 0; // 成功选到节点：本轮"无节点"重试预算复位。
 
             session.LogDecision(
                 $"地图选路 ({target.Point.coord.row},{target.Point.coord.col}) {target.Point.PointType}");
@@ -121,6 +131,18 @@ internal static class MapRouter
         catch (RunAutoTimeoutException ex)
         {
             RunAutoController.Session?.LogDecision($"地图选路超时：{ex.Message}");
+            // 选不到前进节点（地图已开但节点/图数据未就绪或异常，如水晶球事件自收尾开图后）：
+            // 有界重试，避免 30s 超时后无人再请求而永久卡死（133 实证）。
+            if (ex.Message.Contains("地图可前进节点未出现", StringComparison.Ordinal)
+                && _noNodeRetries < 5
+                && NMapScreen.Instance is { IsOpen: true }
+                && !_retryScheduled)
+            {
+                _noNodeRetries++;
+                RunAutoController.Session?.LogDecision($"地图选路：无可前进节点，稍后重试（{_noNodeRetries}/5）");
+                _retryScheduled = true;
+                _ = TaskHelper.RunSafely(RetryAfterAsync(1500, resetRetries: false));
+            }
         }
         finally
         {
@@ -138,19 +160,20 @@ internal static class MapRouter
     /// 解析下一个要去的节点：开局选第 0 行，之后选当前节点的子节点。
     /// 分支评分由 <see cref="RoutePlanner"/> 做危险度感知的全路线评估（看当前血量与药水保险），
     /// 找不到图数据时退回旧的"单点类型"贪心。
+    /// 返回 null 且地图开着时，按原因节流记诊断日志，供"选不到节点卡死"定位（水晶球等事件后）。
     /// </summary>
     private static NMapPoint? SelectNext()
     {
         NMapScreen? map = NMapScreen.Instance;
         if (map == null || !map.IsOpen)
-            return null;
+            return NullWait("地图未打开");
         List<NMapPoint> points = RunUiHelper.FindAll<NMapPoint>(map);
         if (points.Count == 0)
-            return null;
+            return NullWait("无地图节点");
 
         RunState? runState = RunManager.Instance.DebugOnlyGetState();
         if (runState == null)
-            return null;
+            return NullWait("runState 空");
 
         MapPoint? currentPoint = null;
         if (runState.VisitedMapCoords.Count > 0)
@@ -165,7 +188,7 @@ internal static class MapRouter
                 }
             }
             if (currentPoint == null)
-                return null;
+                return NullWait($"当前坐标({lastCoord.row},{lastCoord.col})不在可见地图");
         }
 
         MapPoint? best = RoutePlanner.PickBest(runState, currentPoint, out float bestScore);
@@ -182,7 +205,27 @@ internal static class MapRouter
         }
 
         // 兜底：退回旧"单点类型"贪心（仅当规划器拿不到图/节点时）。
-        return LegacyGreedyFallback(points, currentPoint, runState);
+        NMapPoint? fallback = LegacyGreedyFallback(points, currentPoint, runState);
+        if (fallback == null)
+        {
+            string cur = currentPoint == null
+                ? "无(开局)"
+                : $"({currentPoint.coord.row},{currentPoint.coord.col})";
+            NullWait($"无前进候选（规划器空+贪心空，当前={cur}）");
+        }
+        return fallback;
+    }
+
+    /// <summary>地图开着却选不到节点时的节流诊断日志（≥3s 一条），避免刷屏。</summary>
+    private static NMapPoint? NullWait(string reason)
+    {
+        if (NMapScreen.Instance is { IsOpen: true }
+            && System.Environment.TickCount64 - _lastNullLogTick > 3000)
+        {
+            _lastNullLogTick = System.Environment.TickCount64;
+            RunAutoController.Session?.LogDecision($"地图选路等待：{reason}");
+        }
+        return null;
     }
 
     private static void LogRouteChoice(RunState runState, NMapPoint target, float score)
