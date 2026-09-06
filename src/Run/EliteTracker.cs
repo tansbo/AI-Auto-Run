@@ -44,10 +44,11 @@ internal static class EliteTracker
         session.Telemetry.RecordEliteSeen(idRaw);
         session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {idRaw} 画像[{EliteProfileCatalog.Describe(id)}]");
 
-        // 预测已被消费（本场就是预测的那场）：清除，等待下一次可预测状态。
-        if (session.PredictedNextElite != null
-            && session.PredictedNextElite.Equals(id, StringComparison.Ordinal))
+        // 预测核对（本场若是/非预测的第 3 场）：记录 hit/miss 供离线验证袋机制；预测随后清除。
+        if (session.PredictedNextElite != null)
         {
+            bool hit = session.PredictedNextElite.Equals(id, StringComparison.Ordinal);
+            session.Telemetry.RecordElitePrediction(hit ? $"a{act + 1}:hit" : $"a{act + 1}:miss", id);
             session.PredictedNextElite = null;
         }
 
@@ -58,6 +59,7 @@ internal static class EliteTracker
             if (remaining != null)
             {
                 session.PredictedNextElite = remaining;
+                session.Telemetry.RecordElitePrediction($"a{act + 1}:pred", remaining);
                 session.LogDecision($"精英预测：本幕已见 2 种，下场精英必为 {remaining} 画像[{EliteProfileCatalog.Describe(remaining)}]");
             }
         }

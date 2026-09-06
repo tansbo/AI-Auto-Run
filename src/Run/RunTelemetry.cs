@@ -42,9 +42,16 @@ internal sealed class RunTelemetryData
     /// <summary>本局遇见的精英遭遇（按袋序首次出现，ENCOUNTER.*_ELITE），供关联分析精英强度/轮换。</summary>
     public List<string> EliteSeenIds { get; } = [];
 
+    /// <summary>精英袋预测事件：a{幕}:pred:{精英}（第 3 场预测）与 a{幕}:hit/miss:{精英}（实际第 3 场是否命中），
+    /// 离线核对'见过 2 种→第 3 种'机制的实机准确率。</summary>
+    public List<string> ElitePredictionEvents { get; } = [];
+
     public void RecordRelicObtained(string relicId) => RelicIds.Add(relicId);
 
     public void RecordEliteSeen(string encounterId) => EliteSeenIds.Add(encounterId);
+
+    public void RecordElitePrediction(string actAndEvent, string encounterId)
+        => ElitePredictionEvents.Add($"{actAndEvent}:{encounterId}");
 
     public void RecordPick(
         RunState? runState,
