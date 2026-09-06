@@ -1276,3 +1276,9 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 |---|---|---|
 | RNG-ORDER-DISCOVERY-POTION-0170 | 首选动作 DISCOVERY（同种子有 Discovery 时布点优于立即用药） | Passed |
 | RNG-ORDER-POTION-FIRST-0170 | 首选动作 ATTACK_POTION（无 Discovery 时药水直用） | Passed |
+
+## 2026-09-06 RNG 药水布点·窗口（L1，短搜 8s，StopAfterInitial）
+| Scenario | 局面/断言 | 结果 |
+|---|---|---|
+| RNG-WINDOW-SETUP-DISCOVERY-0170 | Discovery+4防御+药水：首选 DISCOVERY(布点→药水roll UPPERCUT) | Passed |
+| RNG-WINDOW-CTRL-NODISCOVERY-0170 | 同种子 5防御+药水：首选 DEFEND(药水原窗口 roll HEMOKINESIS) | Passed |

@@ -1306,3 +1306,13 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
 - 实测：F1/F2 均 PASSED（ps1 直跑断言）。观察：Discovery 窗口 roll→THRASH；药水直用窗口→IRON_WAVE。
 - 未验证/边界：药水"主动布点容忍战损"策略旋钮(SolverPotionPolicy)未加（下阶段）；熵走
   CombatCardSelection 分流，调制不了攻击药水（需 Discovery 等同流效果）。
+
+## 2026-09-06 RNG 药水布点·窗口夹具 F3/F4（零源码改动）
+- 意图：无药必输局(Discovery+4防御+攻击药水 vs 毛绒伏地虫 300HP)下，搜索用 Discovery 消耗
+  CombatCardGeneration 把药水窗口搬到更好候选——种子 SETUPORDER04 实证：有 Discovery 首选
+  DISCOVERY，药水窗口 roll=UPPERCUT(强)；无 Discovery(5防御对照) 药水窗口 roll=HEMOKINESIS(自伤)。
+  即"用能改随机数的卡调药水三选一"机制已由搜索天然实现并择优。
+- 新增 coverage/unattended/rng-window-setup-discovery-0170.json(首选 DISCOVERY) 与
+  rng-window-ctrl-nodiscovery-0170.json(首选 DEFEND_IRONCLAD)；均 PASSED。
+- 说明：为把"立即 roll 差 vs 布点 roll 好"做成严格胜负断言需让候选质量差异对应明确 HP 指标，
+  当前以"首选动作是否先布点"锁定行为；候选差异(UPPERCUT/HEMOKINESIS)记录在案。

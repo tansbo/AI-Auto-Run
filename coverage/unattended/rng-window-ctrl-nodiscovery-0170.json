@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "RNG-WINDOW-CTRL-NODISCOVERY-0170",
+  "characterId": "IRONCLAD",
+  "encounterId": "FUZZY_WURM_CRAWLER_WEAK",
+  "seed": "SETUPORDER04",
+  "enemyCurrentHp": 300,
+  "initialPlayerHp": 60,
+  "initialPlayerEnergy": 3,
+  "clearPlayerHand": true,
+  "clearPlayerPiles": true,
+  "cards": [
+    { "cardId": "DEFEND_IRONCLAD", "pile": "Hand", "count": 5 }
+  ],
+  "potions": [{ "potionId": "POTION.ATTACK_POTION" }],
+  "forceShortSearchOnly": true,
+  "shortSearchBudgetOverrideMilliseconds": 8000,
+  "expectedInitialFirstActionCardId": "DEFEND_IRONCLAD",
+  "stopAfterInitialSolverResultAssertion": true,
+  "timeoutSeconds": 150
+}
