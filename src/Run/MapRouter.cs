@@ -92,14 +92,47 @@ internal static class MapRouter
             // 先停一拍让 deferred 队列跑完，再点地图节点。
             await Task.Delay(150, token);
 
+            // 等可前进节点；每 ~5s 打印一次等待状态（目标存在但未启用 / 地图未开等），
+            // 供"选路超时无日志"卡死定位（水晶球自收尾开图后 133 实证）。
             NMapPoint? target = null;
-            await RunUiHelper.WaitUntilAsync(
-                () => (target = SelectNext()) != null && target.IsEnabled,
-                token,
-                TimeSpan.FromSeconds(30),
-                "地图可前进节点未出现");
-            if (target == null)
+            bool targetReady = false;
+            for (int tick = 0; tick < 60; tick++)
+            {
+                target = SelectNext();
+                if (target != null && target.IsEnabled)
+                {
+                    targetReady = true;
+                    break;
+                }
+                if (tick % 10 == 9)
+                {
+                    string state = target != null
+                        ? $"目标({target.Point.coord.row},{target.Point.coord.col}) {target.Point.PointType} 未启用"
+                        : "无可前进节点(空因见上)";
+                    RunAutoController.Session?.LogDecision(
+                        $"地图选路等待 {tick + 1}/60：{state} mapOpen={NMapScreen.Instance?.IsOpen}");
+                }
+                await Task.Delay(500, token);
+            }
+            if (!targetReady)
+            {
+                bool mapOpenNow = NMapScreen.Instance is { IsOpen: true };
+                if (target == null)
+                    RunAutoController.Session?.LogDecision(
+                        $"地图选路：30s 无可前进节点，放弃本轮（mapOpen={mapOpenNow}）");
+                else
+                    RunAutoController.Session?.LogDecision(
+                        "地图选路：30s 目标始终未启用，放弃本轮");
+                // 有界重试：地图刚开/稍后才开时给后续请求机会（133 实证 30s 白等后无人接力卡死）。
+                if (_noNodeRetries < 5 && !_retryScheduled)
+                {
+                    _noNodeRetries++;
+                    RunAutoController.Session?.LogDecision($"地图选路：稍后重试（{_noNodeRetries}/5）");
+                    _retryScheduled = true;
+                    _ = TaskHelper.RunSafely(RetryAfterAsync(mapOpenNow ? 1500 : 3000, resetRetries: false));
+                }
                 return;
+            }
             _noNodeRetries = 0; // 成功选到节点：本轮"无节点"重试预算复位。
 
             session.LogDecision(
@@ -131,18 +164,6 @@ internal static class MapRouter
         catch (RunAutoTimeoutException ex)
         {
             RunAutoController.Session?.LogDecision($"地图选路超时：{ex.Message}");
-            // 选不到前进节点（地图已开但节点/图数据未就绪或异常，如水晶球事件自收尾开图后）：
-            // 有界重试，避免 30s 超时后无人再请求而永久卡死（133 实证）。
-            if (ex.Message.Contains("地图可前进节点未出现", StringComparison.Ordinal)
-                && _noNodeRetries < 5
-                && NMapScreen.Instance is { IsOpen: true }
-                && !_retryScheduled)
-            {
-                _noNodeRetries++;
-                RunAutoController.Session?.LogDecision($"地图选路：无可前进节点，稍后重试（{_noNodeRetries}/5）");
-                _retryScheduled = true;
-                _ = TaskHelper.RunSafely(RetryAfterAsync(1500, resetRetries: false));
-            }
         }
         finally
         {

@@ -147,19 +147,27 @@ internal static class EventDriver
                     // 事件 UI 还没就绪。之前只 delay 200ms 快速空转，MaxIterations=50 约 10s 就
                     // 静默放弃，headless 下事件场景加载慢/未完成时会把跑局永久卡死在事件房。
                     // 改为有界等待（可点选项/远古对话可翻页/地图/战斗/覆盖层/房间消失任一即恢复），
-                    // 超时打印完整状态定位卡点后再按原逻辑抛出。
-                    try
+                    // 超时打印完整状态定位卡点后再按原逻辑抛出。等待中每 ~5s 打一次状态，
+                    // 供"事件收尾后无选项卡死"定位（水晶球奖励后 133 实证，无任何日志）。
+                    bool ready = false;
+                    for (int tick = 0; tick < 90; tick++)
                     {
-                        await RunUiHelper.WaitUntilAsync(
-                            () => EventReadyOrGone(room),
-                            token,
-                            TimeSpan.FromSeconds(45),
-                            "事件选项未出现");
+                        if (EventReadyOrGone(room))
+                        {
+                            ready = true;
+                            break;
+                        }
+                        if (tick % 10 == 9)
+                        {
+                            RunAutoController.Session?.LogDecision(
+                                $"事件选项未出现等待 {tick + 1}/90：{DescribeEventState(room)}");
+                        }
+                        await Task.Delay(500, token);
                     }
-                    catch (RunAutoTimeoutException)
+                    if (!ready)
                     {
                         session.LogDecision($"事件 UI 超时就绪失败：{DescribeEventState(room)}");
-                        throw;
+                        throw new RunAutoTimeoutException("事件选项未出现");
                     }
                     continue;
                 }
