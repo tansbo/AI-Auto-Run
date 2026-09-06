@@ -52,6 +52,10 @@ internal sealed class UnattendedTestRequest
     public string[] AdditionalMonsterIds { get; init; } = [];
     public string[] InitialEnemyMoveIds { get; init; } = [];
     public double TimeoutSeconds { get; init; } = 120;
+    // 整局模式存活监控（FullRunLiveness）：取代"任意固定时长陪跑"。主线程冻结/无推进超阈值即
+    // 判 Stuck 并退出（由后台监控线程写结果，主线程卡死也能兜底）。见 ProtocolHost 的监控实现。
+    public double FullRunFrameStallSeconds { get; init; } = 30;
+    public double FullRunNoProgressSeconds { get; init; } = 120;
     public int? ExpectedFinishedTurn { get; init; }
     public int? ExpectedFinishedTurnAtMost { get; init; }
     public int? ExpectedFinishedPlayerHpAtLeast { get; init; }
@@ -471,6 +475,14 @@ internal sealed class UnattendedTestResult
     public string[] CompletedChecks { get; init; } = [];
     public string? Error { get; init; }
     public DateTimeOffset FinishedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+    // 整局模式附加字段：Status=Passed 表示跑局被驱动到自然结束；胜负与进度单独携带
+    // （否则 launcher 只能从遥测侧读，且收尾写与 RunFullRunAsync 兜底写可能互相覆盖丢信息）。
+    public bool? Victory { get; init; }
+    public bool? Abandoned { get; init; }
+    public int? RoomsHandled { get; init; }
+    public int? ActReached { get; init; }
+    /// <summary>Stuck 判定的快照文本（最后看到的进度签名/诊断）。</summary>
+    public string? StuckDetail { get; init; }
 }
 
 internal sealed class UnattendedStageTiming

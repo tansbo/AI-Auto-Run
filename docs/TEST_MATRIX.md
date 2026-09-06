@@ -1289,3 +1289,10 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 | LONG-RUN-360S | 360s 截断时跑到 Act2 第 23 房仍健康；看门狗介入 0、奖励兜底 0、选路超时 0 | Passed（截断，跑局未结束） |
 | LONG-RUN-540S | 540s 截断时 Act2 Boss 第 33 房仍在打；同上 0 介入 | Passed（截断，跑局未结束） |
 | 备注 | seed COMBATSOLVER 现能过 Act1 Boss → 固定时长整局冒烟无法"跑完"，改由 headless 可观测/自动续局机制覆盖 | — |
+
+## 2026-09-06 headless 可观测/自动续局：自然结束端到端（seed COMBATSOLVER, A10）
+| Scenario | 局面 | 结果 |
+|---|---|---|
+| FULLRUN-NATURAL-END | 整局模式 + 存活监控（frameStall 30s / noProgress 120s）；健康推进 24 房至 Act2，约 6.5 分钟自然落败收尾；结果 JSON 带 victory=false / rooms=24 / act=2；监控 0 次误判 Stuck | Passed（自然结束） |
+| AUTO-BATCH-SINGLE | run-auto-batch.ps1 单局：跑完自动还原隔离 mod、summary.jsonl 聚合、BATCH_OK | Passed |
+| 备注 | 真卡死路径（Stuck 写盘 + exit 2）由代码评审 + 健康局零假阳间接验证；仍欠一次强制卡死的直接验证 | — |

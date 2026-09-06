@@ -218,18 +218,23 @@ internal sealed partial class UnattendedTestRunner
         {
             SetStage("full_run_driving");
             await _scenarioBuilder.BuildAsync();
-            SetStage("passed");
-            _writer.Write(
-                "Passed",
-                _stage,
-                _request.CharacterId,
-                "-",
-                combatEnded: true,
-                startedTurn: 0,
-                finishedTurn: 0);
-            Entry.Logger.Info(
-                $"[CombatSolver/Unattended] FULL_RUN PASSED run_id={_request.RunId} scenario={_request.ScenarioId} " +
-                $"seed={_request.Seed} elapsed_ms={_stopwatch.Elapsed.TotalMilliseconds:F1}");
+            // 自然收尾已由 RunEndedEvent → NotifyFullRunEnded 同步写结果（带胜负/房间/幕），
+            // 这里只在它没写到（理论上不该发生）时才兜底写，避免用缺胜负的 Passed 覆盖它。
+            if (!_protocolHost.FullRunFinalized)
+            {
+                SetStage("passed");
+                _writer.Write(
+                    "Passed",
+                    _stage,
+                    _request.CharacterId,
+                    "-",
+                    combatEnded: true,
+                    startedTurn: 0,
+                    finishedTurn: 0);
+                Entry.Logger.Info(
+                    $"[CombatSolver/Unattended] FULL_RUN PASSED run_id={_request.RunId} scenario={_request.ScenarioId} " +
+                    $"seed={_request.Seed} elapsed_ms={_stopwatch.Elapsed.TotalMilliseconds:F1}");
+            }
             await ExitIfRequestedAsync(0);
         }
         finally

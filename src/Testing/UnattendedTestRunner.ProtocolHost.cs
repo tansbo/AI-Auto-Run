@@ -21,7 +21,10 @@ internal sealed partial class UnattendedTestRunner
         private NGame? _host;
         private UnattendedTestRequest? _activeRequest;
         private DateTimeOffset _requestStartedAtUtc;
+        // 整局结果定稿标记：0 未定稿；1 自然收尾（RunEnded 写 Passed+胜负）；3 存活监控判 Stuck。
+        // Notify 与 Stuck 监控用 CompareExchange 竞争，谁先抢到谁定稿，避免互盖。
         private int _fullRunFinalized;
+        private CancellationTokenSource? _livenessCts;
         private int _acceptedRequestCount;
         private int _injectPlayerHpLossTurn;
         private int _injectPlayerHpLossAmount;
@@ -68,33 +71,30 @@ internal sealed partial class UnattendedTestRunner
 
             double elapsedMilliseconds = (DateTimeOffset.UtcNow - _requestStartedAtUtc).TotalMilliseconds;
             RuntimeMemorySnapshot memory = CaptureRuntimeMemory();
-            string resultPath = UnattendedTestFiles.GlobalPath(UnattendedTestFiles.ResultUri);
-            string tempPath = resultPath + ".tmp";
-            File.WriteAllText(
-                tempPath,
-                JsonSerializer.Serialize(
-                    new UnattendedTestResult
-                    {
-                        RunId = request.RunId,
-                        ScenarioId = request.ScenarioId,
-                        Status = "Passed",
-                        Stage = "full_run_driving",
-                        CharacterId = request.CharacterId,
-                        EncounterId = "-",
-                        Seed = request.Seed,
-                        StartedAtUtc = _requestStartedAtUtc,
-                        ElapsedMilliseconds = elapsedMilliseconds,
-                        MainThread = NGame.IsMainThread(),
-                        CombatEnded = true,
-                        StartedTurn = 0,
-                        FinishedTurn = 0,
-                        ManagedHeapBytes = memory.ManagedHeapBytes,
-                        ManagedFragmentedBytes = memory.ManagedFragmentedBytes,
-                        WorkingSetBytes = memory.WorkingSetBytes,
-                        PrivateMemoryBytes = memory.PrivateMemoryBytes,
-                    },
-                    UnattendedTestFiles.JsonOptions));
-            File.Move(tempPath, resultPath, true);
+            WriteResultFile(new UnattendedTestResult
+            {
+                RunId = request.RunId,
+                ScenarioId = request.ScenarioId,
+                Status = "Passed",
+                Stage = "full_run_driving",
+                CharacterId = request.CharacterId,
+                EncounterId = "-",
+                Seed = request.Seed,
+                StartedAtUtc = _requestStartedAtUtc,
+                ElapsedMilliseconds = elapsedMilliseconds,
+                MainThread = NGame.IsMainThread(),
+                CombatEnded = true,
+                StartedTurn = 0,
+                FinishedTurn = 0,
+                ManagedHeapBytes = memory.ManagedHeapBytes,
+                ManagedFragmentedBytes = memory.ManagedFragmentedBytes,
+                WorkingSetBytes = memory.WorkingSetBytes,
+                PrivateMemoryBytes = memory.PrivateMemoryBytes,
+                Victory = evt.IsVictory,
+                Abandoned = evt.IsAbandoned,
+                RoomsHandled = ended.RoomsHandled,
+                ActReached = ended.RunState is { } runState ? runState.CurrentActIndex + 1 : 0,
+            });
 
             Entry.Logger.Info(
                 $"[CombatSolver/Unattended] FULL_RUN_ENDED run_id={request.RunId} " +
@@ -105,6 +105,275 @@ internal sealed partial class UnattendedTestRunner
                 UnattendedAsyncActivityTracker.AbortRequest();
                 _host?.GetTree().Quit(0);
             }
+        }
+
+        /// <summary>整局是否已定稿（自然收尾或 Stuck）。RunFullRunAsync 用它避免覆盖带胜负的结果。</summary>
+        public bool FullRunFinalized => Volatile.Read(ref _fullRunFinalized) != 0;
+
+        private static void WriteResultFile(UnattendedTestResult result)
+        {
+            string resultPath = UnattendedTestFiles.GlobalPath(UnattendedTestFiles.ResultUri);
+            string tempPath = resultPath + ".tmp";
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(result, UnattendedTestFiles.JsonOptions));
+            File.Move(tempPath, resultPath, true);
+        }
+
+        /// <summary>
+        /// 整局存活监控（后台线程，主线程卡死也能判）：主线程帧停摆 ≥frameStallMs，或
+        /// 会话已见但进度签名（房间/阶段/回合/敌我回合）≥noProgressMs 无变化 → 判 Stuck：
+        /// 写 Status=Stuck 结果 JSON（含诊断快照）并从后台强制退出（exit 2）。
+        /// 取代"任意固定时长陪跑"——健康慢跑跑多远跟多远，只有真停摆/卡死才终止并续下一局。
+        /// 进度签名只读跨线程安全字段（后台探针早已同款读），不触碰会崩的节点引用。
+        /// </summary>
+        private void StartFullRunLivenessMonitor(UnattendedTestRequest request)
+        {
+            if (_livenessCts != null)
+                return;
+            var cts = new CancellationTokenSource();
+            _livenessCts = cts;
+            int frameStallMs = Math.Max(5_000, (int)(request.FullRunFrameStallSeconds * 1000));
+            int noProgressMs = Math.Max(10_000, (int)(request.FullRunNoProgressSeconds * 1000));
+            _ = Task.Run(() => RunFullRunLivenessLoopAsync(cts.Token, frameStallMs, noProgressMs));
+            Entry.Logger.Info(
+                $"[CombatSolver/Unattended] FULL_RUN_LIVENESS_STARTED frame_stall_ms={frameStallMs} no_progress_ms={noProgressMs}");
+        }
+
+        private async Task RunFullRunLivenessLoopAsync(CancellationToken token, int frameStallMs, int noProgressMs)
+        {
+            ulong lastFrame = 0;
+            long frameStallSinceMs = -1;
+            long lastSignatureChangeMs = System.Environment.TickCount64;
+            string lastSignature = "";
+            bool seenSession = false;
+            while (true)
+            {
+                try
+                {
+                    await Task.Delay(1000, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                if (token.IsCancellationRequested)
+                    return;
+                try
+                {
+                    // 无活动整局请求或结果已定稿（自然收尾/他处已 Stuck）→ 观望，不判。
+                    if (!IsActive
+                        || _activeRequest is not { RunAutoFullRun: true }
+                        || Volatile.Read(ref _fullRunFinalized) != 0)
+                    {
+                        seenSession = false;
+                        lastFrame = 0;
+                        frameStallSinceMs = -1;
+                        lastSignatureChangeMs = System.Environment.TickCount64;
+                        continue;
+                    }
+
+                    long now = System.Environment.TickCount64;
+                    ulong frames;
+                    try
+                    {
+                        frames = Godot.Engine.GetProcessFrames();
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (frames != lastFrame)
+                    {
+                        lastFrame = frames;
+                        frameStallSinceMs = -1;
+                    }
+                    else if (frameStallSinceMs < 0)
+                    {
+                        frameStallSinceMs = now;
+                    }
+                    if (frameStallSinceMs >= 0 && now - frameStallSinceMs >= frameStallMs)
+                    {
+                        DeclareStuck($"主线程停摆：帧 {lastFrame} 连续 {frameStallMs / 1000}s 未推进");
+                        return;
+                    }
+
+                    RunAutoSession? session = RunAutoController.Session;
+                    if (session != null)
+                        seenSession = true;
+                    if (session == null || !seenSession)
+                        continue; // 跑局未开始（或刚结束）：只盯帧停摆，不数无推进。
+                    string signature = BuildLivenessSignature(session);
+                    if (signature != lastSignature)
+                    {
+                        lastSignature = signature;
+                        lastSignatureChangeMs = now;
+                        continue;
+                    }
+                    if (now - lastSignatureChangeMs >= noProgressMs)
+                    {
+                        DeclareStuck($"跑局无推进：进度签名 [{signature}] 连续 {noProgressMs / 1000}s 未变化");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Entry.Logger.Warn(
+                        $"[CombatSolver/Unattended] FULL_RUN_LIVENESS monitor error: {ex.GetType().Name} {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>抢 Stuck 定稿（只抢未定稿）；抢到后从后台线程写结果并强制退出。</summary>
+        private void DeclareStuck(string reason)
+        {
+            if (Interlocked.CompareExchange(ref _fullRunFinalized, 3, 0) != 0)
+                return;
+            try
+            {
+                WriteFullRunStuckResult(reason);
+            }
+            catch (Exception ex)
+            {
+                Entry.Logger.Error($"[CombatSolver/Unattended] FULL_RUN_STUCK 结果写入失败：{ex}");
+            }
+            Entry.Logger.Error($"[CombatSolver/Unattended] FULL_RUN_STUCK run_id={_activeRequest?.RunId} reason={reason}");
+            // 主线程可能已冻结（帧停摆），GetTree().Quit 未必被处理；后台线程直接终止进程。
+            System.Environment.Exit(2);
+        }
+
+        private void WriteFullRunStuckResult(string reason)
+        {
+            UnattendedTestRequest? request = _activeRequest;
+            if (request == null)
+                return;
+            double elapsedMilliseconds = (DateTimeOffset.UtcNow - _requestStartedAtUtc).TotalMilliseconds;
+            RuntimeMemorySnapshot memory = CaptureRuntimeMemory();
+            WriteResultFile(new UnattendedTestResult
+            {
+                RunId = request.RunId,
+                ScenarioId = request.ScenarioId,
+                Status = "Stuck",
+                Stage = "full_run_liveness",
+                CharacterId = request.CharacterId,
+                EncounterId = "-",
+                Seed = request.Seed,
+                StartedAtUtc = _requestStartedAtUtc,
+                ElapsedMilliseconds = elapsedMilliseconds,
+                MainThread = NGame.IsMainThread(),
+                CombatEnded = false,
+                StartedTurn = 0,
+                FinishedTurn = 0,
+                ManagedHeapBytes = memory.ManagedHeapBytes,
+                ManagedFragmentedBytes = memory.ManagedFragmentedBytes,
+                WorkingSetBytes = memory.WorkingSetBytes,
+                PrivateMemoryBytes = memory.PrivateMemoryBytes,
+                StuckDetail = $"{reason}\n{BuildLivenessSnapshot()}",
+            });
+        }
+
+        /// <summary>卡死诊断快照：会话/战斗/帧的当前文本，写到 Stuck 结果的 StuckDetail。</summary>
+        private string BuildLivenessSnapshot()
+        {
+            var sb = new System.Text.StringBuilder();
+            RunAutoSession? session = RunAutoController.Session;
+            sb.Append("session=");
+            if (session == null)
+            {
+                sb.Append("null");
+            }
+            else
+            {
+                sb.Append($"phase={session.Phase} rooms={session.RoomsHandled} room={session.CurrentRoomType}");
+                if (session.RunState is { } rs)
+                    sb.Append($" floor={rs.TotalFloor} act={rs.CurrentActIndex + 1}");
+            }
+            sb.Append('\n').Append("combat=");
+            try
+            {
+                if (CombatManager.Instance is { IsInProgress: true })
+                {
+                    CombatState? state = CombatManager.Instance.DebugOnlyGetState();
+                    if (state != null)
+                    {
+                        Player? me = LocalContext.GetMe(state);
+                        sb.Append(
+                            $"round={state.RoundNumber} side={state.CurrentSide} " +
+                            $"phase={me?.PlayerCombatState?.Phase} turn={me?.PlayerCombatState?.TurnNumber} " +
+                            $"full_auto={SolverController.FullAutoEnabled}");
+                    }
+                    else
+                    {
+                        sb.Append("state-null");
+                    }
+                }
+                else
+                {
+                    sb.Append("no-combat");
+                }
+            }
+            catch (Exception ex)
+            {
+                sb.Append($"err={ex.GetType().Name}");
+            }
+            try
+            {
+                sb.Append($" frames={Godot.Engine.GetProcessFrames()}");
+            }
+            catch
+            {
+                // 帧读取失败省略。
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>进度签名：只在健康推进时变化的计数器组合（房间/阶段/回合/敌我回合/搜索态）。
+        /// 事件/奖励/篝火等有界等待 ≤30s，任何停滞超过 noProgressMs 都是真卡死候选。</summary>
+        private static string BuildLivenessSignature(RunAutoSession session)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(session.RoomsHandled).Append('|').Append((int)session.Phase).Append('|')
+                .Append(session.CurrentRoomType).Append('|');
+            if (session.RunState is { } rs)
+                sb.Append(rs.CurrentActIndex).Append('/').Append(rs.TotalFloor);
+            sb.Append('|');
+            try
+            {
+                if (CombatManager.Instance is { IsInProgress: true })
+                {
+                    CombatState? state = CombatManager.Instance.DebugOnlyGetState();
+                    if (state != null)
+                    {
+                        Player? me = LocalContext.GetMe(state);
+                        sb.Append("c").Append(state.RoundNumber)
+                            .Append('|').Append((int)state.CurrentSide)
+                            .Append('|').Append(me?.PlayerCombatState?.TurnNumber ?? -1);
+                        bool searching = false;
+                        bool deploying = false;
+                        try
+                        {
+                            searching = SolverController.IsSearching;
+                            deploying = SolverController.IsDeploying;
+                        }
+                        catch
+                        {
+                            // 搜索态读取失败按 false。
+                        }
+                        sb.Append("|srch").Append(searching).Append("|dep").Append(deploying);
+                    }
+                    else
+                    {
+                        sb.Append("state-null");
+                    }
+                }
+                else
+                {
+                    sb.Append("no-combat");
+                }
+            }
+            catch
+            {
+                sb.Append("combat-err");
+            }
+            return sb.ToString();
         }
 
         private static RuntimeMemorySnapshot CaptureRuntimeMemory()
@@ -374,6 +643,8 @@ internal sealed partial class UnattendedTestRunner
             _activeRequest = request;
             _requestStartedAtUtc = DateTimeOffset.UtcNow;
             _fullRunFinalized = 0;
+            if (request.RunAutoFullRun)
+                StartFullRunLivenessMonitor(request);
             _injectPlayerHpLossTurn = request.InjectPlayerHpLossBeforeAutoSearchTurn ?? 0;
             _injectPlayerHpLossAmount = request.InjectPlayerHpLossAmount;
             _injectedPlayerHpLoss = 0;
@@ -400,6 +671,19 @@ internal sealed partial class UnattendedTestRunner
         {
             IsActive = false;
             _activeRequest = null;
+            if (_livenessCts is { } cts)
+            {
+                _livenessCts = null;
+                try
+                {
+                    cts.Cancel();
+                }
+                catch
+                {
+                    // 忽略取消竞争。
+                }
+                cts.Dispose();
+            }
             AutomaticTurnSearchEnabled = true;
             VerifyIncrementalSearch = false;
             ForceShortSearchOnly = false;

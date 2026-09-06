@@ -204,6 +204,10 @@ param(
     [int]$InjectPlayerHpLossAmount = 0,
     [int]$ClearPlayerBlockBeforeEndTurnForTest = 0,
     [int]$TimeoutSeconds = 150,
+    # 整局模式存活监控阈值：主线程帧停摆 / 进度无变化超过阈值即判 Stuck 退出（自动续局用），
+    # 取代"任意固定时长陪跑"。TimeSeconds 保留作最后兜底上限。
+    [double]$FullRunFrameStallSeconds = 30,
+    [double]$FullRunNoProgressSeconds = 120,
     [switch]$KeepGameOpen,
     [switch]$ExitOnComplete,
     [switch]$RunAutoFullRun,
@@ -689,6 +693,8 @@ $request = [ordered]@{
     additionalMonsterIds = @($AdditionalMonsterId)
     initialEnemyMoveIds = @()
     timeoutSeconds = $TimeoutSeconds
+    fullRunFrameStallSeconds = $FullRunFrameStallSeconds
+    fullRunNoProgressSeconds = $FullRunNoProgressSeconds
     expectedFinishedTurn = if ($ExpectedFinishedTurn -gt 0) { $ExpectedFinishedTurn } else { $null }
     expectedFinishedTurnAtMost = if ($ExpectedFinishedTurnAtMost -gt 0) { $ExpectedFinishedTurnAtMost } else { $null }
     expectedFinishedPlayerHpAtLeast = if ($ExpectedFinishedPlayerHpAtLeast -ge 0) { $ExpectedFinishedPlayerHpAtLeast } else { $null }
@@ -1185,7 +1191,9 @@ while ((Get-Date) -lt $resultDeadline) {
             if ($result.status -ne "Passed") {
                 Stop-ClaimedProcessAndRemoveDependency $process $processIdentityStartTimeUtc
                 $cleanupProcessOnExit = $false
-                exit 1
+                # Stuck（存活监控判卡死并已自行退出）用独立退出码 2，便于批量启动器分类；
+                # 其余（Failed/超时）保持 1。
+                exit $(if ($result.status -eq "Stuck") { 2 } else { 1 })
             }
             $quiescenceDeadline = (Get-Date).AddSeconds(120)
             if ($HoldAfterInitialSearch.IsPresent -and $result.status -eq "Passed") {
