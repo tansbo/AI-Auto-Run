@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "QUEEN-MID-DEATH-0170",
+  "characterId": "IRONCLAD",
+  "encounterId": "QUEEN_BOSS",
+  "seed": "QUEENMID01",
+  "enemyCurrentHp": 500,
+  "initialPlayerHp": 80,
+  "initialPlayerEnergy": 3,
+  "clearPlayerHand": true,
+  "clearPlayerPiles": true,
+  "cards": [
+    { "cardId": "STRIKE_IRONCLAD", "pile": "Hand", "count": 3 },
+    { "cardId": "DEFEND_IRONCLAD", "pile": "Hand", "count": 3 },
+    { "cardId": "BASH", "pile": "Hand" },
+    { "cardId": "STRIKE_IRONCLAD", "pile": "Draw", "count": 5 },
+    { "cardId": "DEFEND_IRONCLAD", "pile": "Draw", "count": 4 },
+    { "cardId": "IRON_WAVE", "pile": "Draw", "count": 2 }
+  ],
+  "forceShortSearchOnly": true,
+  "shortSearchBudgetOverrideMilliseconds": 12000,
+  "timeoutSeconds": 240
+}

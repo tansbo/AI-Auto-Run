@@ -1316,3 +1316,13 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
   rng-window-ctrl-nodiscovery-0170.json(首选 DEFEND_IRONCLAD)；均 PASSED。
 - 说明：为把"立即 roll 差 vs 布点 roll 好"做成严格胜负断言需让候选质量差异对应明确 HP 指标，
   当前以"首选动作是否先布点"锁定行为；候选差异(UPPERCUT/HEMOKINESIS)记录在案。
+
+## 2026-09-06 QUEEN 墙 L1 基线（可复现对照）
+- 目的：act3 QUEEN 为主死因（A0 58局6胜，act3 f48 败群）。从零可复现：encounterId QUEEN_BOSS
+  (默认血1会被秒；需 EnemyCurrentHp 高值)，QUEEN 战含火炬头聚合体随从 + PUPPET_STRINGS/
+  BURN_BRIGHT/YOURE_MINE_BRANCH 等分支(mirror COVERAGE 已标近似)。
+- 基线(中段牌组 3打击+3防御+Bash + 5打击4防御2铁斩 抽堆, hp80, 敌500, 短搜12s)：回合掉血
+  11/18/27/16/8…约第5回合累计72+阵亡。Json: coverage/unattended/queen-mid-death-0170.json。
+- 用途：主线改进 QUEEN 应对(出招建模/防霸/净化/爆发时点)后以“死亡回合/总掉血”作对照度量。
+- 注：从零战斗结束后 harness 偶发 '战斗结束但仍存在未死实体' wait_combat_end 报错，不影响
+  回合级数据(用日志回合掉血/死亡回合度量)。
