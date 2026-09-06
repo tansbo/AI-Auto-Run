@@ -239,6 +239,18 @@ internal static class CardPickerAI
                 return card.EnergyCost.Canonical >= 3 ? -4f : 0f;
             case ActBossKind.SkillTax:
                 return card.Type == CardType.Skill ? -3f : 0f;
+            case ActBossKind.DoubleThreat:
+                // 女王+火炬头双威胁：便宜单点攻击(打火炬头/压女王血线)+3；
+                // ≥3费重击不鼓励(前中期易被脆弱99+爆发反杀)。AOE 略加(清多体时用)。
+                if (card.Type != CardType.Attack || card.EnergyCost.CostsX)
+                    return 0f;
+                bool queenAoE = card.TargetType is TargetType.AllEnemies or TargetType.RandomEnemy;
+                if (queenAoE)
+                    return 1.5f;
+                bool queenMultiHit = card.DynamicVars.ContainsKey(RepeatVarName);
+                if (!queenMultiHit && card.EnergyCost.Canonical <= 2)
+                    return 3f;
+                return card.EnergyCost.Canonical >= 3 && !queenMultiHit ? -2f : 0f;
             default:
                 return 0f;
         }
@@ -458,6 +470,10 @@ internal enum ActBossKind
     /// <summary>技能税型（TestSubject 实验体：玩家每打一张技能牌它 +力量）
     /// → 技能类候选价值降。</summary>
     SkillTax,
+
+    /// <summary>双威胁型（QueenBoss 女王+火炬头：火炬头是第二攻击手(多发8伤)且受女王叠力泵；
+    /// 女王自身易伤/虚弱/脆弱99+回合爆发)。对策=前期集中便宜单点尽快杀火炬头 → 便宜单体攻击价值升。</summary>
+    DoubleThreat,
 }
 
 /// <summary>一次选牌决策的牌组画像，构造一次后复用。</summary>
@@ -549,6 +565,7 @@ internal sealed class DeckContext
         {
             nameof(MegaCrit.Sts2.Core.Models.Encounters.VantomBoss) => ActBossKind.InstanceCapped,
             nameof(MegaCrit.Sts2.Core.Models.Encounters.TestSubjectBoss) => ActBossKind.SkillTax,
+            nameof(MegaCrit.Sts2.Core.Models.Encounters.QueenBoss) => ActBossKind.DoubleThreat,
             _ => ActBossKind.None,
         };
     }
