@@ -3,7 +3,9 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Runs;
 
 namespace CombatSolver.Run;
@@ -131,9 +133,13 @@ internal static class MapRouter
                     _retryScheduled = true;
                     _ = TaskHelper.RunSafely(RetryAfterAsync(mapOpenNow ? 1500 : 3000, resetRetries: false));
                 }
+                if (!mapOpenNow)
+                    RunAutoController.Session?.LogDecision($"地图未开状态探针：{ProbeUiState()}");
                 return;
             }
             _noNodeRetries = 0; // 成功选到节点：本轮"无节点"重试预算复位。
+            if (target == null)
+                return; // 编译期空态兜底（targetReady 已隐含非空）。
 
             session.LogDecision(
                 $"地图选路 ({target.Point.coord.row},{target.Point.coord.col}) {target.Point.PointType}");
@@ -247,6 +253,37 @@ internal static class MapRouter
             RunAutoController.Session?.LogDecision($"地图选路等待：{reason}");
         }
         return null;
+    }
+
+    /// <summary>地图未开时的全局 UI 探针：地图/事件房/覆盖层/可用离开钮，定位"事件后地图没开"卡点。</summary>
+    private static string ProbeUiState()
+    {
+        try
+        {
+            string overlayTop = "null";
+            int overlayN = 0;
+            if (NOverlayStack.Instance is { } st && st.ScreenCount > 0)
+            {
+                overlayTop = st.Peek()?.GetType().Name ?? "null";
+                overlayN = st.ScreenCount;
+            }
+            Node root = ((SceneTree)Godot.Engine.GetMainLoop()).Root;
+            string ev = RunUiHelper.FindFirst<MegaCrit.Sts2.Core.Nodes.Rooms.NEventRoom>(root) is { } room
+                ? $"eventRoom(children={room.GetChildCount()})"
+                : "noEventRoom";
+            int proceeds = 0;
+            foreach (NProceedButton p in RunUiHelper.FindAll<NProceedButton>(root))
+            {
+                if (p.Visible && p.IsEnabled)
+                    proceeds++;
+            }
+            string map = NMapScreen.Instance == null ? "null" : NMapScreen.Instance.IsOpen ? "open" : "closed";
+            return $"map={map} {ev} overlayTop={overlayTop}/{overlayN} enabledProceed={proceeds}";
+        }
+        catch (Exception ex)
+        {
+            return $"probe失败:{ex.GetType().Name}";
+        }
     }
 
     private static void LogRouteChoice(RunState runState, NMapPoint target, float score)

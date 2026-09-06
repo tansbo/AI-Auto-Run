@@ -539,7 +539,33 @@ internal static class EventDriver
         {
             // 同上。
         }
-        return $"options={options} locked={locked} {layoutState} children={room.GetChildCount()}";
+        string mapState;
+        try
+        {
+            NMapScreen? map = NMapScreen.Instance;
+            mapState = map == null ? "map=null" : map.IsOpen ? "map=open" : "map=closed(instance有)";
+        }
+        catch
+        {
+            mapState = "map=?";
+        }
+        string overlayState = "overlay=null";
+        int proceedCount = 0;
+        try
+        {
+            if (NOverlayStack.Instance is { } stack && stack.ScreenCount > 0)
+                overlayState = $"overlay=top:{stack.Peek()?.GetType().Name} n:{stack.ScreenCount}";
+            foreach (NProceedButton p in RunUiHelper.FindAll<NProceedButton>(room))
+            {
+                if (p.Visible && p.IsEnabled)
+                    proceedCount++;
+            }
+        }
+        catch
+        {
+            // 状态枚举失败不致命。
+        }
+        return $"options={options} locked={locked} {layoutState} {mapState} {overlayState} proceedEnabled={proceedCount} children={room.GetChildCount()}";
     }
 
     private static bool SetsEqual(HashSet<NEventOptionButton> a, List<NEventOptionButton> b)
