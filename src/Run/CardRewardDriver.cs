@@ -101,9 +101,23 @@ internal static class CardRewardDriver
 
             if (chosen == null)
             {
-                session.LogDecision("卡牌奖励评分不足，跳过");
-                telemetry.RecordPick(runState, roomType, cards, null, true, false, null, 0f);
-                await ClickSkipAsync(screen);
+                // 事件内卡牌奖励（THE_FUTURE_OF_POTIONS/水晶球等 OfferCustom 屏）：跳过会触发
+                // PostAlternateCardRewardAction.EndSelectionAndDoNotCompleteReward → RewardsSet 不完成、
+                // 外层奖励屏滞留 → EventDriver 收不到事件体 → 整局卡死（150 实证）。
+                // 事件给的卡通常是事件专属/保留价值高，评分不足时退而选评分最高者，避免走死路。
+                if (roomType == RoomType.Event && candidates.Count > 0)
+                {
+                    chosen = candidates
+                        .OrderByDescending(card => CardPickerAI.Evaluate(card, DeckContext.From(player, runState)))
+                        .First();
+                    session.LogDecision($"事件卡牌奖励评分均不足，退而选评分最高 {chosen.Id.Entry}");
+                }
+                else
+                {
+                    session.LogDecision("卡牌奖励评分不足，跳过");
+                    telemetry.RecordPick(runState, roomType, cards, null, true, false, null, 0f);
+                    await ClickSkipAsync(screen);
+                }
             }
             else
             {
