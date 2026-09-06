@@ -1338,3 +1338,10 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
 - 掉血 0/18/24/16/15/7 累计80 约第6-7回合败 —— 与 v3 同级，未改进；WHIRLWIND 可用(id 生效)。
 - 结论：受控牌组夹具对'牌组强度'敏感、对求解细节不敏感；主线假设需来自语料死亡分布/阶段压力
   (如 torchhead 存活期女王增伤 burst 关联)，先不做无假设的主线盲改。
+
+## 2026-09-06 QUEEN+火炬头 行动语义规格（decomp Queen.cs）
+- PUPPET_STRINGS: ChainsOfBinding 3（锁链）→ YOU_ARE_MINE: Frail/Weak/Vulnerable 99。
+- BURN_BRIGHT: 给除己外队友(火炬头) +1力 × 自身+20格挡（女王在场即持续给火炬头叠力）。
+- 火炬头死亡(AfterDeath): HasAmalgamDied=true；若下行动为 BURN_BRIGHT 状态则 SetMoveImmediate(ENRAGE(+2力))。
+- 分支(amalgam死)后: OFF_WITH_YOUR_HEAD(3伤×5=15)+EXECUTION(15)+ENRAGE 循环。
+- t3 峰值18-36与 '易伤×脆弱×叠力爆发' 自洽。后续 L1 假设实验：'早期杀火炬头(断+1力泵) vs 留活口' 对照。
