@@ -41,7 +41,7 @@ internal static class EliteTracker
 
         session.ElitesSeenThisAct.Add(id);
         session.Telemetry.RecordEliteSeen(id);
-        session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {id}");
+        session.LogDecision($"精英追踪（第{act + 1}幕 第{session.ElitesSeenThisAct.Count}种）：{shortName} {id} 画像[{EliteProfileCatalog.Describe(id)}]");
 
         // 袋内不重复：见过 2 种 → 第 3 场必是剩余那种（本幕仅 3 种精英）。
         if (session.ElitesSeenThisAct.Count == 2)
@@ -50,7 +50,7 @@ internal static class EliteTracker
             if (remaining != null)
             {
                 session.PredictedNextElite = remaining;
-                session.LogDecision($"精英预测：本幕已见 2 种，下场精英必为 {remaining}");
+                session.LogDecision($"精英预测：本幕已见 2 种，下场精英必为 {remaining} 画像[{EliteProfileCatalog.Describe(remaining)}]");
             }
         }
         else if (session.ElitesSeenThisAct.Count == 1)
