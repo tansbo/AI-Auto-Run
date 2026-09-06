@@ -31,6 +31,20 @@ internal static class EventOptionValuer
     /// <summary>一张诅咒卡的牌组代价（约分，待校准）。</summary>
     private const float CursePenalty = 14f;
 
+    // —— 水晶球二选一（付金 3 揭 vs 吃 Debt 诅咒 6 揭；同布局，见 CrystalSpherePlanner）——
+    /// <summary>PAYMENT_PLAN 的 Debt 诅咒代价（锚点尺度粗定，与布局锚同量级，待数据校准）。</summary>
+    private const double DeckCurseCost = 40d;
+    /// <summary>1 金 ≈ 0.5 锚点（小金币 10 金→5 锚 校准）。</summary>
+    private const double GoldCostScale = 0.5d;
+    /// <summary>付金后低于该数额视为伤及商店/治疗余量，追加惩罚。</summary>
+    private const double FloorGold = 30d;
+    private const double FloorPenalty = 8d;
+    private const int DefaultUncoverCost = 75; // 50+Rng(1..50) 期望
+    private static CrystalSphere? _memoCrystal;
+    private static double _plan3;
+    private static double _plan6;
+    private static bool _plansValid;
+
     public readonly record struct OptionScore(float Value, string Basis, bool Deterministic);
 
     /// <summary>
@@ -47,6 +61,8 @@ internal static class EventOptionValuer
             return ScoreSlipperyBridge(bridge, option, player, runState);
         if (eventModel is LostWisp lostWisp)
             return ScoreLostWisp(lostWisp, option, player, runState);
+        if (eventModel is CrystalSphere crystalSphere)
+            return ScoreCrystalSphere(crystalSphere, option, player);
 
         // 悬停里出现诅咒卡 = 塞诅咒代价。
         float curseCost = CountCurseTips(option) * CursePenalty;
@@ -315,5 +331,84 @@ internal static class EventOptionValuer
             -hpCost * hpWeight,
             $"掉血代价:-{hpCost}×{hpWeight:0.##}",
             Deterministic: true);
+    }
+
+    /// <summary>
+    /// CRYSTAL_SPHERE（水晶球）二选一（用户规则 + decomp 核对）：
+    /// UNCOVER_FUTURE=付 50+Rng(1..50) 金换 3 次占卜；PAYMENT_PLAN=塞 Debt 诅咒换 6 次占卜。
+    /// 两分支用同一事件 Rng 建同一布局（预测见 CrystalSpherePlanner.Predict），只差占卜次数。
+    /// 评分：A = 3 揭可完成价值 − 金币代价(0.5/金) − 付金后余量不足惩罚；
+    ///       B = 6 揭可完成价值 − Debt 诅咒代价(40)。
+    /// 都确定性（布局/代价已定），选净值高者。预测失败退回未建模（保持既有顺序）。
+    /// </summary>
+    private static OptionScore ScoreCrystalSphere(CrystalSphere crystal, EventOption option, Player? player)
+    {
+        string? key = option.TextKey;
+        bool isUncover = key?.Contains(".UNCOVER_FUTURE", StringComparison.OrdinalIgnoreCase) == true;
+        bool isPayment = key?.Contains(".PAYMENT_PLAN", StringComparison.OrdinalIgnoreCase) == true;
+        if (!isUncover && !isPayment)
+            return new OptionScore(0f, $"未建模({key})", Deterministic: false);
+
+        EnsureCrystalPlans(crystal);
+        if (!_plansValid)
+            return new OptionScore(0f, $"未建模({key},预测失败)", Deterministic: false);
+
+        if (isUncover)
+        {
+            int cost = ReadUncoverCost(crystal);
+            double gold = player?.Gold ?? 0d;
+            double goldPenalty = cost * GoldCostScale;
+            double after = gold - cost;
+            double floorPenalty = after < FloorGold ? FloorPenalty : 0d;
+            double value = _plan3 - goldPenalty - floorPenalty;
+            return new OptionScore(
+                (float)value,
+                $"水晶球A(付{after + cost:0.#}−{cost}金={after:0.#}余×3揭):布局{_plan3:0.#}−金{goldPenalty:0.#}{floorPenalty:0.#}",
+                Deterministic: true);
+        }
+
+        double valueB = _plan6 - DeckCurseCost;
+        return new OptionScore(
+            (float)valueB,
+            $"水晶球B(吃Debt×6揭):布局{_plan6:0.#}−诅咒{DeckCurseCost:0.#}",
+            Deterministic: true);
+    }
+
+    /// <summary>读取金币代价掷值（先读一次 DynamicVars 确保 CalculateVars 的掷已发生，见下）。</summary>
+    private static int ReadUncoverCost(CrystalSphere crystal)
+    {
+        try
+        {
+            DynamicVar? v = crystal.DynamicVars["UncoverFutureCost"];
+            return v == null ? DefaultUncoverCost : v.IntValue;
+        }
+        catch (Exception)
+        {
+            return DefaultUncoverCost;
+        }
+    }
+
+    /// <summary>
+    /// 按事件实例缓存一次"两分支共享布局"的预测（单线程主循环，静态缓存安全）。
+    /// 必须先读一次 UncoverFutureCost：若 UI 尚未渲染含代价文案的选项（触发 CalculateVars 掷金），
+    /// 这里主动掷一次，保证快照 Rng 时点与真实建小游戏时点同状态（代价掷只发生在入口页，两分支共享）。
+    /// </summary>
+    private static void EnsureCrystalPlans(CrystalSphere crystal)
+    {
+        if (ReferenceEquals(_memoCrystal, crystal))
+            return; // _plansValid 已就绪或此前已失败（不再重试）。
+        _memoCrystal = crystal;
+        _plansValid = false;
+        _ = ReadUncoverCost(crystal); // 确保代价掷先于 Rng 快照。
+        if (crystal.Rng == null)
+            return;
+        CrystalSpherePlanner.Board? board = CrystalSpherePlanner.Predict(crystal);
+        if (board == null)
+            return;
+        _plan3 = CrystalSpherePlanner.PlanTotal(board, 3);
+        _plan6 = CrystalSpherePlanner.PlanTotal(board, 6);
+        _plansValid = true;
+        RunAutoController.Session?.LogDecision(
+            $"水晶球入口预计算：同布局，3 揭可完成 {_plan3:0.#}，6 揭 {_plan6:0.#}（自动揭示 {board.FreeValue:0.#}）");
     }
 }
