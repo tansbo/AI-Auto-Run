@@ -611,6 +611,22 @@ internal static class EventOverlayDriver
         return best;
     }
 
+    /// <summary>
+    /// 若当前覆盖层栈顶是水晶球"服务收尾"屏（Proceed 可用）则点离开收尾。
+    /// 奖励屏全部结束后水晶球屏回到栈顶等待离开——由最后一个奖励处理者（RewardsScreenDriver
+    /// 事件模式）负责收尾最可靠（EventDriver 在长奖励链期间可能停在等待上，133 实证无心跳）。
+    /// </summary>
+    internal static async Task TryFinalizeCrystalScreenIfTopAsync(CancellationToken token)
+    {
+        if (NOverlayStack.Instance?.Peek() is not NCrystalSphereScreen crystalScreen)
+            return;
+        NProceedButton? proceed = crystalScreen.GetNodeOrNull<NProceedButton>("%ProceedButton");
+        if (proceed == null || !proceed.IsEnabled)
+            return;
+        RunAutoController.Session?.LogDecision("水晶球收尾：奖励已结清，点离开");
+        await LeaveCrystalSphereAsync(crystalScreen, token);
+    }
+
     /// <summary>点水晶球离开按钮；点后若未自动退栈则显式移除（卡牌屏超时移除同款防御，
     /// 153 已验证模式）。奖励收尾后水晶球屏回到栈顶(Proceed 可用)——必须点离开才会
     /// 触发事件收尾开图，拖住会导致 map 永远不开（133 实证 NCrystalSphereScreen/1 卡死）。</summary>

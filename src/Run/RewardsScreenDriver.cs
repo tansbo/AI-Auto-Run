@@ -282,6 +282,10 @@ internal static class RewardsScreenDriver
                     }
                 }
                 session.LogDecision("事件奖励结算完毕，交还事件驱动");
+                // 奖励链结束后水晶球"服务收尾"屏回到栈顶(Proceed 可用)：在此直接收尾离开——
+                // EventDriver 在长奖励链期间可能停在等待上不再驱动覆盖层（133 实证心跳停 in 奖励期），
+                // 由最后一个奖励处理者收尾最可靠；非水晶球场景（栈顶不是水晶球屏）自动跳过。
+                await EventOverlayDriver.TryFinalizeCrystalScreenIfTopAsync(token);
             }
         }
         catch (OperationCanceledException)
