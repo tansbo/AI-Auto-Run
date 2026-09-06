@@ -82,3 +82,8 @@
 - mid deck: turn~5 / 72+ (seed QUEENMID01)
 - formed v3: turn~6-7 / 80 (QUEENFORMED03)
 - formed v4 +Whirlwind: turn~6-7 / 80 (QUEENV401)
+
+## 2026-09-06 act3 Boss 败局回合掉血模式（Boss尾段聚合）
+- 205 peak31 t3 / 206 peak30(死亡t6) / 201 peak28 t3 / 212 peak23 / 213 peak21 / 214 peak18/t3。
+- 共同模式：第2-3回合起 18-31 爆发掉血 → 累积败。指向 QUEEN 中前期(BURN_BRIGHT/EXEC/易伤堆叠)破防窗口。
+- 后续主线假设优先方向：该窗口的格挡/净化/斩杀时点；用 QUEEN L1 夹具矩阵度量验证。
