@@ -1296,3 +1296,10 @@ pwsh -NoProfile -File tools\run-unattended-test.ps1 -ScenarioId MONSTER-MOVES-BA
 | FULLRUN-NATURAL-END | 整局模式 + 存活监控（frameStall 30s / noProgress 120s）；健康推进 24 房至 Act2，约 6.5 分钟自然落败收尾；结果 JSON 带 victory=false / rooms=24 / act=2；监控 0 次误判 Stuck | Passed（自然结束） |
 | AUTO-BATCH-SINGLE | run-auto-batch.ps1 单局：跑完自动还原隔离 mod、summary.jsonl 聚合、BATCH_OK | Passed |
 | 备注 | 真卡死路径（Stuck 写盘 + exit 2）由代码评审 + 健康局零假阳间接验证；仍欠一次强制卡死的直接验证 | — |
+
+## 2026-09-07 headless 可观测/自动续局：3-seed A10 后台批（多局自动续局实证）
+| Scenario | 局面 | 结果 |
+|---|---|---|
+| AUTO-BATCH-3SEED | run-auto-batch.ps1 三局连跑（COMBATSOLVER→OBSERVABILITY→AUTORUN，A10 IRONCLAD），每局自然结束自动续局；BATCH_OK 3/3、stuck=0、failed=0；遥测逐局落盘 | Passed |
+| MULTI-RUN-DATA | COMBATSOLVER=Act2/24房/6.5min 败（复现上次同 seed 结果，确定性败局）；OBSERVABILITY=Act3/49房/15.5min 败（最深局，中途 10 分钟+ 无 Stuck → 健康慢跑不挨监控误杀）；AUTORUN=Act2/25房/6.5min 败 | Passed（0 胜，3 败） |
+| 备注 | 隔离 mod 于 finally 还原（NECROBINDER 等在位）；同 seed 同结局 → 败局由策略决定、非方差，可作策略迭代回归锚 | — |
