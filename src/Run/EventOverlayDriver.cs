@@ -71,6 +71,11 @@ internal static class EventOverlayDriver
                 await DriveCrystalSphereAsync(crystalSphere, token);
                 return true;
             default:
+                // NCardRewardSelectionScreen 等由 CardRewardDriver(ShowScreen Postfix) 独立驱动，
+                // 不识别时返回 false 会让 EventDriver 兜底等 15s 抢走其处理窗口（153 实证）
+                // → 若当前顶层是卡牌奖励屏则直接交还主循环（不等待不干预）。
+                if (top is NCardRewardSelectionScreen)
+                    return true;
                 return false;
         }
     }

@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
+using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -159,7 +160,21 @@ internal static class CardRewardDriver
         }
         catch (RunAutoTimeoutException ex)
         {
-            RunAutoController.Session?.LogDecision($"卡牌奖励处理超时：{ex.Message}");
+            // 事件内 OfferCustom 单卡奖励（THE_FUTURE_OF_POTIONS 等）：选卡/跳过后游戏不自动关
+            // 残留 NCardRewardSelectionScreen（153/150 实证：depth=2 卡死整局）。选/跳已生效
+            // （卡已入组/跳过记录），显式移除残留屏交还事件驱动；战斗后场景仍由游戏正常关闭，
+            // 走到这里是事件特例，移除安全。
+            RunAutoSession? s = RunAutoController.Session;
+            if (s != null && s.CurrentRoomType == RoomType.Event
+                && GodotObject.IsInstanceValid(screen) && screen.IsVisibleInTree())
+            {
+                s.LogDecision($"事件卡牌屏超时未自关，显式移除残留屏（{ex.Message}）");
+                NOverlayStack.Instance?.Remove(screen);
+            }
+            else
+            {
+                s?.LogDecision($"卡牌奖励处理超时：{ex.Message}");
+            }
         }
         finally
         {
