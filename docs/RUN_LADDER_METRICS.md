@@ -77,3 +77,8 @@
 - OK:209胜(act3)/210/211/212/213/214败；208/215 深跑 no-telemetry。
 - A0: runs=58 wins=6 rate=10.3%；精英袋预测 hits=1 misses=0。
 - act3(f48) 败为主（QUEEN 墙）；新构建后胜局 207/209（水晶球/看门狗/精英链修复后首胜场在增加）。
+
+## 2026-09-06 QUEEN L1 夹具矩阵（死亡回合/总掉血）
+- mid deck: turn~5 / 72+ (seed QUEENMID01)
+- formed v3: turn~6-7 / 80 (QUEENFORMED03)
+- formed v4 +Whirlwind: turn~6-7 / 80 (QUEENV401)
