@@ -6,6 +6,8 @@ using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere;
+using MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent;
+using MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent.CrystalSphereItems;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
@@ -386,12 +388,12 @@ internal static class EventOverlayDriver
     /// <summary>
     /// CrystalSphere（水晶球揭示小游戏）屏驱动（移植 AutoSlay CrystalSphereScreenHandler）。
     /// 机制（decomp 核对 CrystalSphereMinigame/CrystalSphereCell/NCrystalSphereScreen）：
-    /// 11×11 迷雾棋盘，四角+十字预清空，15 件奖品（1 遗物/2 普通药水/1 稀有药水/3 卡奖励/1 诅咒/7 金币）
-    /// 随机铺在迷雾格；每次占卜 = 点 1 格，Big 工具清 3×3（Small 只清 1 格）；某奖品占用格全清即"揭示"
-    /// （结算时发放，含诅咒——没有任何逐格提示可避开）。揭示次数耗尽自动开奖励屏（顶层换屏即交还主循环由
-    /// DriveRewardsAsync 接走），处理完回到本屏点 %ProceedButton 离开进地图。
-    /// **选格策略（用户规则：在这些状态里取最大收益）**：无物品位置信息 → 每次选能新清掉最多迷雾格的格
-    /// （3×3 覆盖最大、不重叠浪费），确定性取最大者；Big 工具固定（比 Small 每占卜覆盖更多）。
+    /// 11×11 迷雾棋盘，四角+十字预清空，15 件奖品（1 遗物 4×4/2 普药/1 稀药/白蓝金卡各 2×2/
+    /// 1 诅咒 2×2/5 小金 1×1/2 大金 2×1）随机铺定——**每格 Cell.Item 公开可读（SL 确定性）**。
+    /// 每次占卜 = 点 1 格，Big 工具清 3×3（点击格+8 邻域）；某物品全部占格被清即揭示
+    /// （RevealItem → 计入 _revealed → 水晶球结束后逐件/批量发奖励屏）。
+    /// **选格策略（SL 级，用户规则）**：读棋盘布局，优先完成高价值物品（遗物>稀有卡>稀有药水>
+    /// 白/蓝卡与普药>金币），诅咒占格禁区不主动碰；同价值取顺带推进最多的点击。
     /// </summary>
     private static async Task DriveCrystalSphereAsync(NCrystalSphereScreen screen, CancellationToken token)
     {
@@ -425,47 +427,12 @@ internal static class EventOverlayDriver
                 if (cell.Visible)
                     all.Add(cell);
             }
-            List<NCrystalSphereCell> hidden = [];
-            foreach (NCrystalSphereCell cell in all)
-            {
-                if (cell.Entity.IsHidden)
-                    hidden.Add(cell);
-            }
-            if (hidden.Count == 0)
+            NCrystalSphereCell? pick = SelectBestRevealCell(all);
+            if (pick == null)
                 break; // 无可点格：等奖励屏或离开。
 
-            // 覆盖最大化：选 3×3 范围内还藏着最多迷雾格的格。
-            NCrystalSphereCell pick = hidden[0];
-            int bestScore = -1;
-            foreach (NCrystalSphereCell candidate in hidden)
-            {
-                int score = 0;
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    for (int dy = -1; dy <= 1; dy++)
-                    {
-                        int nx = candidate.Entity.X + dx;
-                        int ny = candidate.Entity.Y + dy;
-                        if (nx < 0 || nx >= 11 || ny < 0 || ny >= 11)
-                            continue;
-                        foreach (NCrystalSphereCell other in all)
-                        {
-                            if (other.Entity.X == nx && other.Entity.Y == ny && other.Entity.IsHidden)
-                            {
-                                score++;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    pick = candidate;
-                }
-            }
             RunAutoController.Session?.LogDecision(
-                $"水晶球：揭开 ({pick.Entity.X},{pick.Entity.Y}) 覆盖 {bestScore} 格，剩 {hidden.Count - 1} 迷雾格");
+                $"水晶球：揭示 ({pick.Entity.X},{pick.Entity.Y})（SL 选格）");
             pick.EmitSignal(NClickableControl.SignalName.Released, pick);
             await Task.Delay(500, token);
             clicks++;
@@ -490,6 +457,158 @@ internal static class EventOverlayDriver
         {
             await LeaveCrystalSphereAsync(screen, token);
         }
+    }
+
+    /// <summary>
+    /// SL 级选格：读全盘 Item 布局，选一次点击（Big 3×3）能"完整揭示价值最高物品"的格；
+    /// 无物品可当场完成时，选覆盖最多高价值物品剩余迷雾格、且不碰诅咒的格。
+    /// </summary>
+    private static NCrystalSphereCell? SelectBestRevealCell(List<NCrystalSphereCell> all)
+    {
+        if (all.Count == 0)
+            return null;
+
+        // 索引：item 实例 → 其占格（Position..Position+Size-1 处的 cell），并统计剩余迷雾占格。
+        var items = new List<(CrystalSphereItem Item, List<NCrystalSphereCell> Occupied)>();
+        var seen = new HashSet<CrystalSphereItem>();
+        foreach (NCrystalSphereCell cell in all)
+        {
+            CrystalSphereItem? item = cell.Entity.Item;
+            if (item == null || !seen.Add(item))
+                continue;
+            var occupied = new List<NCrystalSphereCell>();
+            for (int x = item.Position.X; x < item.Position.X + item.Size.X && x < 11; x++)
+            {
+                for (int y = item.Position.Y; y < item.Position.Y + item.Size.Y && y < 11; y++)
+                {
+                    NCrystalSphereCell? owner = all.FirstOrDefault(c => c.Entity.X == x && c.Entity.Y == y);
+                    if (owner != null)
+                        occupied.Add(owner);
+                }
+            }
+            items.Add((item, occupied));
+        }
+
+        // 候选点击格 = 仍隐藏的格（Big 3×3 以它为中心）。
+        var hidden = all.Where(c => c.Entity.IsHidden).ToList();
+        if (hidden.Count == 0)
+            return null;
+
+        // 价值分级（物品类型由具体子类决定；具体内容由揭示后奖励 rng 决定，这里按类型/稀有度定锚）。
+        float ItemValue(CrystalSphereItem item)
+        {
+            return item switch
+            {
+                CrystalSphereRelic => 100f,
+                CrystalSphereCurse => -60f, // 诅咒：不主动拿
+                CrystalSphereCardReward card => CardRewardValue(card),
+                CrystalSpherePotion potion => PotionRewardValue(potion),
+                CrystalSphereGold gold => GoldValue(gold),
+                _ => 10f,
+            };
+        }
+
+        // 卡奖励稀有度私有字段 _rarity（CardRarity）：反射读（readonly 字段，只读安全）。
+        static float CardRewardValue(CrystalSphereCardReward card)
+        {
+            System.Reflection.FieldInfo? f = typeof(CrystalSphereCardReward)
+                .GetField("_rarity", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            string? rarity = f?.GetValue(card)?.ToString();
+            return rarity switch
+            {
+                "Rare" => 70f,
+                "Uncommon" => 50f,
+                _ => 32f,
+            };
+        }
+
+        static float PotionRewardValue(CrystalSpherePotion potion)
+        {
+            System.Reflection.FieldInfo? f = typeof(CrystalSpherePotion)
+                .GetField("_rarity", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            string? rarity = f?.GetValue(potion)?.ToString();
+            return rarity == "Rare" ? 55f : 30f;
+        }
+
+        static float GoldValue(CrystalSphereGold gold)
+        {
+            System.Reflection.FieldInfo? f = typeof(CrystalSphereGold)
+                .GetField("_isBig", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            bool big = f?.GetValue(gold) is true;
+            return big ? 14f : 5f;
+        }
+
+        bool IsCurse(CrystalSphereItem item) => item is CrystalSphereCurse;
+
+        // 候选点击格计分：完成物品价值优先；触碰诅咒重罚。
+        NCrystalSphereCell? best = null;
+        float bestScore = float.MinValue;
+        string? bestWhy = null;
+        foreach (NCrystalSphereCell candidate in hidden)
+        {
+            // 本次点击将清空的 3×3 邻域（Big 工具：点击格 + 8 邻域，越界裁剪）。
+            var cleared = new HashSet<NCrystalSphereCell>();
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int nx = candidate.Entity.X + dx;
+                    int ny = candidate.Entity.Y + dy;
+                    if (nx < 0 || nx >= 11 || ny < 0 || ny >= 11)
+                        continue;
+                    NCrystalSphereCell? hit = all.FirstOrDefault(c => c.Entity.X == nx && c.Entity.Y == ny);
+                    if (hit != null && hit.Entity.IsHidden)
+                        cleared.Add(hit);
+                }
+            }
+
+            // 本击后能完整揭示的物品（剩余迷雾占格全部落在本次 cleared 内）。
+            float completedValue = 0f;
+            float curseHits = 0f;
+            float progressValue = 0f;
+            var touchedItems = new HashSet<CrystalSphereItem>();
+            foreach ((CrystalSphereItem item, List<NCrystalSphereCell> occupied) in items)
+            {
+                if (touchedItems.Contains(item))
+                    continue;
+                bool anyTouched = false;
+                foreach (NCrystalSphereCell occ in occupied)
+                {
+                    if (cleared.Contains(occ))
+                    {
+                        anyTouched = true;
+                        break;
+                    }
+                }
+                if (!anyTouched)
+                    continue;
+                touchedItems.Add(item);
+                if (IsCurse(item))
+                {
+                    curseHits += 1f;
+                    continue;
+                }
+                bool allClear = occupied.All(occ => !occ.Entity.IsHidden || cleared.Contains(occ));
+                if (allClear)
+                    completedValue += ItemValue(item);
+                else
+                    progressValue += ItemValue(item) * 0.15f; // 推进了但没完成：给一点进度分
+            }
+
+            float score = completedValue + progressValue - curseHits * 80f;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = candidate;
+                bestWhy = $"完成={completedValue:0.#} 推进={progressValue:0.#} 触诅咒={curseHits}";
+            }
+        }
+
+        if (best != null)
+        {
+            RunAutoController.Session?.LogDecision($"水晶球选格：{bestWhy}");
+        }
+        return best;
     }
 
     /// <summary>点水晶球离开按钮；地图已开而本屏没自动退栈时手动移除（AutoSlay 同款防御）。</summary>
