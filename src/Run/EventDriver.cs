@@ -26,6 +26,7 @@ namespace CombatSolver.Run;
 internal static class EventDriver
 {
     private static bool _active;
+    private static long _lastBeatTick;
 
     private const int MaxIterations = 300;
 
@@ -82,8 +83,47 @@ internal static class EventDriver
                 session = RunAutoController.Session;
                 if (session == null)
                     return;
-                if (!GodotObject.IsInstanceValid(room) || !room.IsInsideTree())
-                    return;
+
+                // 心跳（节流）：确认事件驱动仍在主循环（水晶球后"无任何日志"疑云用）。
+                if (System.Environment.TickCount64 - _lastBeatTick > 5000)
+                {
+                    _lastBeatTick = System.Environment.TickCount64;
+                    session.LogDecision(
+                        $"事件驱动心跳 it={iteration} roomChildren={(room != null && GodotObject.IsInstanceValid(room) ? room.GetChildCount() : -1)} " +
+                        $"top={NOverlayStack.Instance?.Peek()?.GetType().Name ?? "无"}/{NOverlayStack.Instance?.ScreenCount ?? 0} " +
+                        $"map={NMapScreen.Instance?.IsOpen}");
+                }
+
+                // 房间节点可能被游戏重建/替换（自定义事件切布局页）：用最新实例，旧引用失效会误退。
+                NEventRoom? currentRoom = RunUiHelper.FindFirst<NEventRoom>(root);
+                if (currentRoom == null)
+                {
+                    // 事件房消失但地图未开：可能是房→图过渡的一瞬。短等（≤10s）让地图/新房间出现。
+                    bool mapOpen = NMapScreen.Instance is { IsOpen: true };
+                    for (int w = 0; w < 40 && !mapOpen; w++)
+                    {
+                        await Task.Delay(250, token);
+                        mapOpen = NMapScreen.Instance is { IsOpen: true };
+                        currentRoom = RunUiHelper.FindFirst<NEventRoom>(root);
+                        if (currentRoom != null)
+                            break;
+                    }
+                    if (mapOpen)
+                    {
+                        MapRouter.RequestRoute();
+                        return;
+                    }
+                    if (currentRoom == null)
+                    {
+                        session.LogDecision("事件驱动：事件房消失且地图未开（过渡未完成），退出等待兜底");
+                        return;
+                    }
+                }
+                if (!ReferenceEquals(currentRoom, room))
+                {
+                    session.LogDecision("事件驱动：事件房节点已重建/替换，采用最新实例继续");
+                    room = currentRoom;
+                }
                 if (NMapScreen.Instance is { IsOpen: true })
                 {
                     // 事件自收尾把地图打开（水晶球 OfferCustom 等奖励屏关掉后事件即结束开图）：

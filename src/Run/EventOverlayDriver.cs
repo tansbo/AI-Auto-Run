@@ -611,20 +611,31 @@ internal static class EventOverlayDriver
         return best;
     }
 
-    /// <summary>点水晶球离开按钮；地图已开而本屏没自动退栈时手动移除（AutoSlay 同款防御）。</summary>
+    /// <summary>点水晶球离开按钮；点后若未自动退栈则显式移除（卡牌屏超时移除同款防御，
+    /// 153 已验证模式）。奖励收尾后水晶球屏回到栈顶(Proceed 可用)——必须点离开才会
+    /// 触发事件收尾开图，拖住会导致 map 永远不开（133 实证 NCrystalSphereScreen/1 卡死）。</summary>
     private static async Task LeaveCrystalSphereAsync(NCrystalSphereScreen screen, CancellationToken token)
     {
         NProceedButton? proceed = screen.GetNodeOrNull<NProceedButton>("%ProceedButton");
         if (proceed == null || !proceed.IsEnabled)
             return;
+        RunAutoController.Session?.LogDecision("水晶球：点离开按钮收尾");
         await RunUiHelper.ClickAsync(proceed, 200);
-        await Task.Delay(300, token);
-        if (IsStillTop(screen) && NMapScreen.Instance is { IsOpen: true })
+        await Task.Delay(400, token);
+        if (IsStillTop(screen))
         {
+            RunAutoController.Session?.LogDecision("水晶球：点离开后仍在栈顶，显式移除覆盖层");
             NOverlayStack.Instance?.Remove(screen);
             await Task.Delay(100, token);
         }
-        await WaitUntilClosed(screen, token, "水晶球离开未完成");
+        try
+        {
+            await WaitUntilClosed(screen, token, "水晶球离开未完成");
+        }
+        catch (RunAutoTimeoutException)
+        {
+            RunAutoController.Session?.LogDecision("水晶球离开兜底完成（超时不再等待）");
+        }
     }
 
     private static NGridCardHolder? FindFirstHolder(Node screen)
