@@ -1326,3 +1326,10 @@ Beam 中间排序与最终选择分离。稳健预设把 `1 HP` 约视为 `3` �
 - 用途：主线改进 QUEEN 应对(出招建模/防霸/净化/爆发时点)后以“死亡回合/总掉血”作对照度量。
 - 注：从零战斗结束后 harness 偶发 '战斗结束但仍存在未死实体' wait_combat_end 报错，不影响
   回合级数据(用日志回合掉血/死亡回合度量)。
+
+## 2026-09-06 QUEEN L1 level-2 受控成型基线
+- 成型 deck(力量/过牌/格挡轴: POMMEL×4 THRASH×2 IMPERVIOUS×2 RAGE×2 DARK_EMBRACE TRUE_GRIT×2 DEFEND×5,
+  hp80/敌500/seed QUEENFORMED03)：turn1-2 掉血0(block30-35)，turn3+ 28/11/16/25 → 约 turn6-7 败。
+  对比中段 deck(turn1-2 就掉血、turn5 败)。作后续求解/牌组质量增量度量(死亡回合/总掉血)。
+- 卡 id 注入注意：仅日志验证过的 id 可用(SPOT_WEAKNESS/CLEAVE 解析失败——registry 无此 Entry，
+  勿直接用)；AOE 覆盖(打火炬头)尚未纳入，等可用 id(WHIRLWIND 类待验)再补。
